@@ -207,22 +207,39 @@ export async function POST(request) {
     let parsed = null;
     let reason = null;
     if (hasApiKey) {
-      const { text } = await generateText({
-        model: google(modelName),
-        prompt: `${sys}\n\n${JSON.stringify(instruction, null, 2)}`,
-        temperature: 0.6,
-        maxTokens: 800,
-      });
-      parsed = safeJsonFromText(text);
-      if (!parsed || !Array.isArray(parsed.items)) {
-        reason = "La IA no devolvió JSON válido. Generando sugerencia básica.";
+      let parsed = null;
+      let reason = null;
+      if (hasApiKey) {
+        // Prefer provider wrapper when an explicit API key is configured
+        const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+        try {
+          const googleModel = google(modelName, { apiKey });
+          const { text } = await generateText({ model: googleModel, prompt: `${sys}\n\n${JSON.stringify(instruction, null, 2)}`, temperature: 0.6, maxTokens: 800 });
+          const parsedText = text;
+          const parsedCandidate = safeJsonFromText(parsedText);
+          parsed = parsedCandidate;
+          if (!parsed || !Array.isArray(parsed.items)) {
+            reason = "La IA no devolvió JSON válido. Generando sugerencia básica.";
+          }
+        } catch (errWrapper) {
+          console.warn('[recipes][suggest-llm] Provider-wrapped request failed, falling back to plain model attempt', errWrapper?.message || errWrapper);
+          // Try plain model name as secondary attempt
+          try {
+            const { text } = await generateText({ model: modelName, prompt: `${sys}\n\n${JSON.stringify(instruction, null, 2)}`, temperature: 0.6, maxTokens: 800 });
+            const parsedText = text;
+            const parsedCandidate = safeJsonFromText(parsedText);
+            parsed = parsedCandidate;
+            if (!parsed || !Array.isArray(parsed.items)) {
+              reason = "La IA no devolvió JSON válido. Generando sugerencia básica.";
+            }
+          } catch (errPlain2) {
+            console.warn('[recipes][suggest-llm] Plain attempt after wrapper failed', errPlain2?.message || errPlain2);
+            reason = "Error al consultar LLM. Generando sugerencia básica.";
+          }
+        }
+      } else {
+        reason = "Falta GOOGLE_GENERATIVE_AI_API_KEY. Generando sugerencia básica.";
       }
-    } else {
-      reason = "Falta GOOGLE_GENERATIVE_AI_API_KEY. Generando sugerencia básica.";
-    }
-
-    // Si no hay respuesta válida del LLM, hacemos un fallback heurístico con los ingredientes permitidos
-    if (!parsed || !Array.isArray(parsed.items)) {
       // Heurística: 1 receta combinando hasta 3-5 ingredientes variados
       const pick = (cat) => allowed.filter((a) => (a.categoria || '').toLowerCase().includes(cat))[0];
       const prot = pick('prote');

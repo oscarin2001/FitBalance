@@ -207,8 +207,15 @@ export async function GET(request) {
       return String(s || "").toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     }
 
-    // Canonicalizar variantes snack
-    function canonicalSnack(t) { return /^snack/i.test(String(t || '')) ? 'Snack' : t; }
+    // Canonicalizar variantes snack preservando mañana/tarde si existen
+    function canonicalSnack(t) {
+      const raw = String(t || '');
+      if (!/^snack/i.test(raw)) return t;
+      const low = raw.toLowerCase();
+      if (/snack[ _-]?(manana|mañana)/i.test(low)) return 'Snack_manana';
+      if (/snack[ _-]?tarde/i.test(low)) return 'Snack_tarde';
+      return 'Snack';
+    }
 
     // Si viene fecha y hay weekly almacenado, intentar construir items específicos
     if (dateParam && planAIWeekly) {

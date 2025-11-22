@@ -80,7 +80,13 @@ export default function LoginPage() {
 
   return (
   <div className="p-6 max-w-sm mx-auto space-y-6 bg-white rounded-lg border border-gray-300 shadow">
-      <div>
+      <div className="flex flex-col items-center">
+        {/* Logo: coloca tu logo en `public/images/logo.svg` (se sirve desde /images/logo.svg) */}
+        <img
+          src="/images/logo.svg"
+          alt="Logo"
+          className="h-20 w-20 mb-2 rounded-full object-cover border border-gray-200 shadow-sm bg-white"
+        />
         <h1 className="text-2xl font-semibold">FitBalance</h1>
         <p className="text-sm text-muted-foreground">Inicia sesión con tu cuenta</p>
       </div>

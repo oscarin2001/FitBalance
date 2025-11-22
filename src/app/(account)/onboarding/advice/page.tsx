@@ -317,10 +317,13 @@ export default function OnboardingAdvicePage() {
       const base = new URL('/api/account/advice', url.origin);
       // Propagar params existentes útiles
       const params = new URLSearchParams(url.search);
-      // Opción A: no forzar long/ensureFull y desactivar strict para usar el modelo flash
-      params.set('strict', '0');
+      // Flags para mejorar estabilidad y evitar fast fallback
+      params.set('ai_strict', '1');
+      params.set('ensureFull', '0');
+      params.set('maxTokens', '3072');
+      params.set('preferAlt', '1');
+      if (!params.has('alt')) params.set('alt', 'models/gemini-2.0-flash');
       params.delete('forceLong');
-      params.delete('ensureFull');
       base.search = params.toString();
       return base.pathname + (base.search ? base.search : '');
     } catch {
@@ -701,15 +704,16 @@ export default function OnboardingAdvicePage() {
         }
         // Caso: generación todavía en curso (202 started/pending desde prefetch)
         if (res.status === 202 && (json?.started || json?.pending)) {
-          // Polling hasta 60s
+          // Polling robusto: respetar Retry-After si lo devuelve el servidor y aplicar backoff exponencial
             const pollStart = performance.now();
+            let pollAttempts = 0;
             async function poll() {
               if (cancelled) return;
               try {
                 const r2 = await fetch(buildAdviceUrl(), { method: "POST" });
                 const j2 = await r2.json().catch(() => ({}));
+                // Si ya está completado, procesar y salir
                 if (r2.ok && !j2.started && !j2.pending) {
-                  // completado
                   if (!cancelled) {
                     if (j2.fallback) {
                       setError('Contenido parcial (fallback). Puedes reintentar para enriquecerlo.');
@@ -730,6 +734,8 @@ export default function OnboardingAdvicePage() {
                   }
                   return;
                 }
+
+                // Si excede el tiempo máximo de polling, abortar
                 if (performance.now() - pollStart > 60000) {
                   if (!cancelled) {
                     setError('La generación está tardando demasiado. Puedes reintentar.');
@@ -738,8 +744,30 @@ export default function OnboardingAdvicePage() {
                   }
                   return;
                 }
-              } catch {}
-              if (!cancelled) setTimeout(poll, 2000);
+
+                // Calcular retraso para el siguiente intento:
+                // 1) Si el servidor devolvió Retry-After, úsalo (s). 2) Si no, aplica backoff exponencial (2s * 2^attempts) con tope.
+                pollAttempts += 1;
+                const raHeader = r2.headers.get ? r2.headers.get('retry-after') : null;
+                let delayMs = 2000;
+                if (raHeader) {
+                  const raSec = parseInt(raHeader, 10);
+                  if (!Number.isNaN(raSec) && raSec > 0) delayMs = Math.max(2000, raSec * 1000);
+                } else {
+                  // exponential backoff: 2000ms, 4000ms, 8000ms, ... capped at 30s
+                  const backoff = 2000 * Math.pow(2, Math.min(pollAttempts - 1, 4));
+                  delayMs = Math.min(Math.max(2000, backoff), 30000);
+                }
+                if (!cancelled) setTimeout(poll, delayMs);
+                return;
+              } catch (e) {
+                // En caso de error de red, esperar y reintentar con backoff
+                pollAttempts += 1;
+                const backoff = 2000 * Math.pow(2, Math.min(pollAttempts - 1, 5));
+                const delayMs = Math.min(backoff, 30000);
+                if (!cancelled) setTimeout(poll, delayMs);
+                return;
+              }
             }
             poll();
             return; // salimos para que el flujo normal no se ejecute aún
@@ -793,6 +821,8 @@ export default function OnboardingAdvicePage() {
       }
     }
 
+    // Prefetch en background para permitir cache si tarda
+    try { fetch('/api/account/advice?prefetch=1', { method: 'POST' }); } catch {}
     // Ejecutar en paralelo: no esperes a perfil/schedule para comenzar IA
     Promise.allSettled([loadProfileAndSchedule(), fetchAdvice()]);
 

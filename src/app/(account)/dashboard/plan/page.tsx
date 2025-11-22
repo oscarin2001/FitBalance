@@ -750,15 +750,6 @@ export default function PlanPage() {
           <p className="text-muted-foreground mt-1">Generado por IA • Marca cumplimiento diario</p>
         </div>
         <div className="flex items-center gap-2">
-          {weeklyPlan && weeklyPlan.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowWeekly(true)}
-              className="h-8 px-3 rounded-md border text-xs hover:bg-muted inline-flex items-center gap-1"
-            >
-              <CalendarDays className="size-4" /> Ver plan semanal
-            </button>
-          )}
         </div>
       </div>
 
@@ -785,8 +776,8 @@ export default function PlanPage() {
                   key={d.iso}
                   onClick={() => setSelectedDate(d.iso)}
                   className={[
-                    'w-12 h-16 flex flex-col items-center justify-center rounded-md border transition-colors relative text-xs select-none',
-                    isSelected ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-muted/40 text-foreground border-muted hover:bg-muted',
+                    'w-12 h-16 flex flex-col items-center justify-center rounded-md border transition-colors relative text-xs select-none cursor-pointer shadow-sm',
+                    isSelected ? 'bg-primary text-primary-foreground border-primary shadow' : 'bg-muted/20 text-foreground border-muted hover:bg-muted/30 hover:shadow-md',
                     !isSelected && d.isToday ? 'ring-2 ring-primary/60 ring-offset-1' : '',
                   ].join(' ')}
                   aria-pressed={isSelected}
@@ -802,16 +793,19 @@ export default function PlanPage() {
             type="button"
             onClick={() => slide(1)}
             disabled={!canSlideRight}
-            className="size-8 inline-flex items-center justify-center rounded-md border text-muted-foreground disabled:opacity-30 disabled:cursor-not-allowed hover:bg-muted"
+            className="size-8 inline-flex items-center justify-center rounded-md border text-muted-foreground disabled:opacity-30 disabled:cursor-not-allowed hover:bg-muted bg-background hover:scale-105 transition-transform"
             aria-label="Día siguiente"
           >
             <ChevronRight className="size-4" />
           </button>
+        </div>
+        {/* Botón 'Mes' alineado a la izquierda; calendario se muestra a la derecha en pantallas md+ y debajo en móviles */}
+        <div className="mt-2 w-full flex justify-start items-center gap-2">
           <div className="relative">
             <button
               type="button"
-              onClick={() => setShowMonthPicker(v => !v)}
-              className="h-8 px-3 inline-flex items-center gap-1 rounded-md border text-xs hover:bg-muted"
+              onClick={() => setShowMonthPicker((v) => !v)}
+              className="h-8 px-3 inline-flex items-center gap-1 rounded-md border text-xs hover:bg-muted shadow-sm hover:shadow-md transition"
             >
               <CalendarDays className="size-4" />
               Mes
@@ -820,16 +814,7 @@ export default function PlanPage() {
             {showMonthPicker && (
               <div
                 ref={monthPickerRef}
-                /*
-                  Fix calendario desbordándose hacia la derecha en pantallas móviles / modo PWA.
-                  - right-0: alinear borde derecho con el botón "Mes" (evita overflow fuera del viewport si el botón está cerca del borde derecho).
-                  - left-auto: neutraliza left:0 implícito cuando se usa right-0.
-                  - max-w-[92vw]: asegura que nunca exceda el ancho visible.
-                  - w-max & shrink-0: mantiene ancho natural del calendario dentro del límite.
-                  - [--cell-size:...] tamaños de celda reducidos en móviles para compactar.
-                  - overscroll-contain: evita que gestos dentro del calendario generen scroll lateral en el body.
-                */
-                className="absolute z-20 mt-2 right-0 left-auto bg-popover border rounded-md shadow p-2 w-max max-w-[92vw] overscroll-contain [--cell-size:2.1rem] sm:[--cell-size:2.4rem]"
+                className="absolute z-20 bg-popover border rounded-md shadow p-2 w-max max-w-[92vw] overscroll-contain [--cell-size:2.1rem] sm:[--cell-size:2.4rem] left-0 mt-2 md:left-full md:top-0 md:ml-2 md:mt-0 right-auto"
               >
                 <Calendar
                   mode="single"
@@ -842,6 +827,16 @@ export default function PlanPage() {
               </div>
             )}
           </div>
+          {weeklyPlan && weeklyPlan.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowWeekly(true)}
+              className="h-8 px-3 rounded-md border text-xs hover:bg-muted inline-flex items-center gap-1"
+            >
+              <CalendarDays className="size-4" />
+              <span className="whitespace-nowrap">Ver plan semanal</span>
+            </button>
+          )}
         </div>
         <div className="mt-1 text-[11px] text-muted-foreground">
           {isPastSelected && 'Día pasado • Puedes revisar y marcar cumplimiento'}
@@ -903,20 +898,23 @@ export default function PlanPage() {
                   const expanded = expandedMeals.has(canon);
                   const h = mealHour(m.tipo);
                   return (
-                    <li key={i} className="border rounded-md p-3 flex flex-col gap-2 bg-background">
+                    <li key={i} className="border rounded-md p-3 flex flex-col gap-2 bg-background relative">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex flex-col flex-1 gap-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[11px] font-mono bg-muted px-2 py-0.5 rounded border">{h}</span>
-                            <span className="font-medium text-sm">{full?.receta?.nombre || m.receta?.nombre || m.tipo}</span>
-                            {showMacros && full?.receta?.macros && (
-                              <span className="text-[11px] text-muted-foreground flex gap-3 flex-wrap">
-                                <span>Proteína {full.receta.macros.proteinas} g</span>
-                                <span>Carbohidratos {full.receta.macros.carbohidratos} g</span>
-                                <span>Grasas {full.receta.macros.grasas} g</span>
-                                <span className="opacity-70">Calorías {full.receta.macros.kcal}</span>
-                              </span>
-                            )}
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-mono bg-muted px-2 py-0.5 rounded border">{h}</span>
+                              <span className="font-medium text-sm">{full?.receta?.nombre || m.receta?.nombre || m.tipo}</span>
+                              {showMacros && full?.receta?.macros && (
+                                <span className="text-[11px] text-muted-foreground flex gap-3 flex-wrap">
+                                  <span>Proteína {full.receta.macros.proteinas} g</span>
+                                  <span>Carbohidratos {full.receta.macros.carbohidratos} g</span>
+                                  <span>Grasas {full.receta.macros.grasas} g</span>
+                                  <span className="opacity-70">Calorías {full.receta.macros.kcal}</span>
+                                </span>
+                              )}
+                            </div>
+                            {/* check moved to actions absolute container to avoid overlap */}
                           </div>
                           {expanded && full?.receta?.alimentos && full.receta.alimentos.length > 0 && (
                             <div className="mt-1 border rounded-md bg-muted/30 p-2">
@@ -936,7 +934,7 @@ export default function PlanPage() {
                             className="self-start text-[11px] mt-1 underline text-muted-foreground hover:text-foreground"
                           >{expanded ? 'Ocultar detalles' : 'Ver detalles'}</button>
                         </div>
-                        <div className="flex flex-col items-end gap-2" data-meal-menu>
+                        <div className="absolute top-3 right-3 flex flex-col items-center gap-2 min-w-[56px] md:min-w-[64px]" data-meal-menu>
                           <div className="relative" data-meal-menu>
                             <button
                               type="button"
@@ -948,7 +946,7 @@ export default function PlanPage() {
                               <MoreHorizontal className="size-4" />
                             </button>
                             {openMealMenu === canon && (
-                              <div className="absolute z-30 right-0 mt-1 w-48 rounded-md border bg-popover p-1 shadow-md text-[12px]" data-meal-menu>
+                              <div className="absolute z-30 bg-popover border rounded-md p-1 shadow-md text-[12px] w-48 right-0 mt-2 md:right-full md:top-0 md:mr-2" data-meal-menu>
                                 <button
                                   type="button"
                                   onClick={() => { window.open('/account/profile/meals', '_blank'); setOpenMealMenu(null); }}

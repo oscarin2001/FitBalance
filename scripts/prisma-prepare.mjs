@@ -21,13 +21,6 @@ function log(msg) {
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = 'file:./dev.db';
   log('DATABASE_URL no definido. Usando fallback file:./dev.db solo para generate.');
-} else {
-  log(`DATABASE_URL detectado (no fallback).`);
-}
-
-const usingTurso = !!process.env.TURSO_DATABASE_URL;
-if (usingTurso) {
-  log('Detectado TURSO_DATABASE_URL -> Usaremos adapter en runtime; no es necesario migrate deploy en build.');
 }
 
 // Ejecutar prisma generate
@@ -41,8 +34,8 @@ try {
 }
 
 // Ejecutar migrate deploy opcionalmente
-if (process.env.RUN_PRISMA_MIGRATE_DEPLOY === '0' || usingTurso) {
-  log('Saltando prisma migrate deploy (condición: RUN_PRISMA_MIGRATE_DEPLOY=0 o Turso activo).');
+if (process.env.RUN_PRISMA_MIGRATE_DEPLOY === '0') {
+  log('Salteando prisma migrate deploy (RUN_PRISMA_MIGRATE_DEPLOY=0)');
   process.exit(0);
 }
 

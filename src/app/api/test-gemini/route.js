@@ -6,17 +6,10 @@ export async function GET() {
   try {
     console.log("[test-gemini] Probando conexión con Google Gemini...");
 
-    // Verificar API key
+    // Informational: do not require GOOGLE_GENERATIVE_AI_API_KEY here. Some deployments
+    // configure the provider differently (for example via Next/AI runtime config).
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    console.log(`[test-gemini] API Key configurada: ${apiKey ? 'SÍ' : 'NO'}`);
-    console.log(`[test-gemini] Longitud API Key: ${apiKey?.length || 0}`);
-
-    if (!apiKey) {
-      return NextResponse.json({
-        error: "GOOGLE_GENERATIVE_AI_API_KEY no configurada",
-        status: "error"
-      }, { status: 500 });
-    }
+    console.log(`[test-gemini] GOOGLE_GENERATIVE_AI_API_KEY present: ${!!apiKey}`);
 
     // Probar con un modelo simple
     const modelName = process.env.GEMINI_MODEL || "models/gemini-2.5-flash";
@@ -24,12 +17,20 @@ export async function GET() {
 
     const testPrompt = "Responde con solo 'OK' si puedes leerme.";
 
-    const result = await generateText({
-      model: google(modelName),
-      prompt: testPrompt,
-      temperature: 0.1,
-      maxTokens: 10,
-    });
+  let result;
+    if (apiKey) {
+      console.log('[test-gemini] GOOGLE_GENERATIVE_AI_API_KEY present -> using provider wrapper directly');
+      const googleModel = google(modelName, { apiKey });
+      result = await generateText({ model: googleModel, prompt: testPrompt, temperature: 0.1, maxTokens: 10 });
+    } else {
+      try {
+        result = await generateText({ model: modelName, prompt: testPrompt, temperature: 0.1, maxTokens: 10 });
+      } catch (errPlain) {
+        console.warn('[test-gemini] Plain model name failed, retrying with provider wrapper', errPlain?.message || errPlain);
+        const googleModel = google(modelName);
+        result = await generateText({ model: googleModel, prompt: testPrompt, temperature: 0.1, maxTokens: 10 });
+      }
+    }
 
     console.log(`[test-gemini] Respuesta recibida: ${result.text}`);
 

@@ -41,7 +41,60 @@ Consulta la [documentación de despliegue](https://nextjs.org/docs/app/building-
 
 ---
 
-## 📝 Estándares de Commits
+## �️ Base de Datos (SQLite local + Turso en producción)
+
+| Entorno | Uso | Variables |
+|---------|-----|-----------|
+| Local   | SQLite archivo | `DATABASE_URL=file:./dev.db` (fallback) |
+| Producción / Preview | Turso (libSQL) | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` |
+
+El código fuerza error en producción si falta `TURSO_DATABASE_URL`.
+
+### Crear base Turso
+```bash
+turso db create fitbalance-prod
+turso db show --url fitbalance-prod
+turso db tokens create fitbalance-prod
+```
+Configura en Vercel (Project Settings > Environment Variables):
+```
+TURSO_DATABASE_URL=libsql://fitbalance-prod-xxxxx.turso.io
+TURSO_AUTH_TOKEN=eyJ...
+NEXTAUTH_SECRET=... (igual que AUTH_SECRET)
+AUTH_SECRET=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+```
+
+### Aplicar migraciones a Turso
+```bash
+npm run db:migrate:turso -- --db fitbalance-prod
+```
+Si omites `--db` intenta inferirlo de `TURSO_DATABASE_URL`.
+
+### Limpiar datos (⚠ destruye filas)
+```bash
+CONFIRM_DB_CLEAN=TRUE npm run db:clean                # solo datos usuario
+CONFIRM_DB_CLEAN=TRUE INCLUDE_CATALOG=TRUE npm run db:clean  # también catálogo
+```
+Para Turso:
+```bash
+CONFIRM_DB_CLEAN=TRUE ALLOW_TURSO_CLEAN=TRUE npm run db:clean
+```
+
+### Wipe local (reset archivo dev.db)
+```bash
+npm run db:wipe:local
+```
+
+### Health Check
+Endpoint: `/api/health` devuelve `{ ok: true, db: 'up', latency_ms }` si la conexión responde.
+
+---
+
+---
+
+## �📝 Estándares de Commits
 
 Este proyecto sigue la convención [Conventional Commits](https://www.conventionalcommits.org/es/v1.0.0/) para mantener un historial de Git limpio y significativo.
 

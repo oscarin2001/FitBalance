@@ -105,13 +105,58 @@ export async function POST(request) {
   const ensureFull = url.searchParams.get("ensureFull") === "1";
   // Devuelve siempre el prompt completo (además de debugPrompt) si se pasa showPrompt=1
   const showPrompt = url.searchParams.get("showPrompt") === "1";
-  const strictMode = url.searchParams.get("ai_strict") === "1"; // fuerza intentar más tiempo modelos IA antes de fallback
+  const strictMode = url.searchParams.get("ai_strict") === "1" || url.searchParams.get("strict") === "1"; // fuerza esperar más y desactiva fast
   // Soportar múltiples formas de solicitar modelo largo
   let forceLong = url.searchParams.get("forceLong") === "1" || url.searchParams.get("mode") === "long";
   // Intentar leer body para detectar flags (si viene vacío no falla)
   let bodyData = null;
   try { bodyData = await request.json(); } catch {}
   if (bodyData?.forceLong || bodyData?.long) forceLong = true;
+
+  // Override de modelo por query (?model=models/gemini-1.5-flash)
+  const qModel = (url.searchParams.get("model") || "").trim();
+  let EFFECTIVE_MODEL_LONG = GEMINI_MODEL_LONG;
+  let EFFECTIVE_MODEL_FALLBACK = GEMINI_MODEL_FALLBACK;
+  if (qModel) {
+    EFFECTIVE_MODEL_LONG = normalizeModelName(qModel, GEMINI_MODEL_LONG);
+    EFFECTIVE_MODEL_FALLBACK = EFFECTIVE_MODEL_LONG;
+  }
+
+  // Permitir override del umbral mínimo antes de fallback local por petición (?minFallbackMs=0)
+  const MIN_FALLBACK_MS = Number(url.searchParams.get("minFallbackMs")) || ADVICE_MIN_FALLBACK_MS;
+  // Sombras locales de helpers para respetar el override de esta petición
+  const canUseLocalFallback = (start) => {
+    return (Date.now() - start) >= MIN_FALLBACK_MS;
+  };
+  const waitMinWindow = async (start) => {
+    const elapsed = Date.now() - start;
+    if (elapsed < MIN_FALLBACK_MS) {
+      const remaining = MIN_FALLBACK_MS - elapsed;
+      console.log(`[advice] Esperando ${remaining}ms extra antes de fallback local (elapsed=${elapsed} < min=${MIN_FALLBACK_MS})`);
+      await new Promise(r => setTimeout(r, remaining));
+    }
+  };
+
+  // Timeouts efectivos por petición: en modo estricto ampliamos ventanas y desactivamos fast
+  const USE_FAST = FAST_MODE && !strictMode;
+  let FLASH_MS = strictMode ? ADVICE_FLASH_TIMEOUT_MS + 20000 : ADVICE_FLASH_TIMEOUT_MS; // +20s si estricto
+  let LONG_MS  = strictMode ? ADVICE_LONG_TIMEOUT_MS + 20000  : ADVICE_LONG_TIMEOUT_MS;  // +20s si estricto
+  let FALLBACK_MS = strictMode ? ADVICE_FALLBACK_TIMEOUT_MS + 10000 : ADVICE_FALLBACK_TIMEOUT_MS; // +10s si estricto
+  // Overrides por query para pruebas rápidas
+  const qFlash = Number(url.searchParams.get("flashMs"));
+  const qLong = Number(url.searchParams.get("longMs"));
+  const qFallback = Number(url.searchParams.get("fallbackMs"));
+  if (Number.isFinite(qFlash) && qFlash > 0) FLASH_MS = qFlash;
+  if (Number.isFinite(qLong) && qLong > 0) LONG_MS = qLong;
+  if (Number.isFinite(qFallback) && qFallback > 0) FALLBACK_MS = qFallback;
+  const MAX_ATTEMPTS_OVERRIDE = Number(url.searchParams.get("maxAttempts"));
+  // maxTokens override y modelos alternativos (failover)
+  const MAX_TOKENS = Number(url.searchParams.get("maxTokens")) || Number(process.env.ADVICE_MAX_TOKENS) || 8192;
+  const altFromQuery = (url.searchParams.get("alt") || "").split(",").map(s => s.trim()).filter(Boolean);
+  const ALT_MODELS = altFromQuery.length
+    ? altFromQuery
+    : (process.env.ADVICE_ALT_MODELS || 'models/gemini-1.5-flash,models/gemini-1.5-flash-8b').split(',').map(s => s.trim()).filter(Boolean);
+  const PREFER_ALT_FIRST = url.searchParams.get("preferAlt") === "1";
     const userId = await getUserIdFromRequest(request);
     if (!userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
@@ -173,7 +218,7 @@ export async function POST(request) {
 
     // Concurrency guard también para peticiones normales (antes sólo prefetch). Si otra generación está activa, respondemos 202.
     if (!isPrefetch && activeGenerations.has(userId)) {
-      return NextResponse.json({ pending: true }, { status: 202 });
+      return NextResponse.json({ pending: true }, { status: 202, headers: { 'Retry-After': '10' } });
     }
 
     if (!forceLong && !invalidate) {
@@ -316,7 +361,8 @@ ${wantTypesText}`;
 
     async function generateFullAdvice(promptText, opts = { forceLong: false }) {
       const FULL_PROMPT = `Eres un experto en nutrición y entrenamiento, preciso y claro.\n\n${promptText}`;
-      async function runModel(modelName, fullPrompt) {
+      async function 
+      runModel(modelName, fullPrompt) {
         return generateText({ model: google(modelName), prompt: fullPrompt, temperature: 0.7, maxTokens: 8192 });
       }
       async function withTimeout(promise, ms) {
@@ -324,34 +370,34 @@ ${wantTypesText}`;
         return Promise.race([promise, timeout]).finally(() => clearTimeout(to));
       }
       const t0 = Date.now();
-  let content = null; let usedModel = null; let phase = 'start'; let genMs = null; // genMs se calcula al final salvo fallback
+      let content = null; let usedModel = null; let phase = 'start'; let genMs = null; // genMs se calcula al final salvo fallback
       const attemptLog = [];
       try {
-        if (opts.forceLong && !FAST_MODE) {
+        if (opts.forceLong && !USE_FAST) {
           phase = 'long-primary';
-          const res = await withTimeout(runModel(GEMINI_MODEL_LONG, FULL_PROMPT), ADVICE_LONG_TIMEOUT_MS);
+          const res = await withTimeout(runModel(GEMINI_MODEL_LONG, FULL_PROMPT), LONG_MS);
           content = res.text; usedModel = GEMINI_MODEL_LONG;
           attemptLog.push({ phase, model: usedModel, chars: content?.length || 0 });
         } else {
           // Flash primero (más rápido)
             phase = 'flash-primary';
             try {
-              const resFlash = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, FULL_PROMPT), ADVICE_FLASH_TIMEOUT_MS);
+              const resFlash = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, FULL_PROMPT), FLASH_MS);
               content = resFlash.text; usedModel = GEMINI_MODEL_FALLBACK;
               attemptLog.push({ phase, model: usedModel, chars: content?.length || 0 });
             } catch (eFlash) {
-              if (!FAST_MODE) {
+              if (!USE_FAST) {
                 // Intentar long si no estamos en fast mode
                 phase = 'long-after-flash-fail';
                 try {
-                  const resLong = await withTimeout(runModel(GEMINI_MODEL_LONG, FULL_PROMPT), ADVICE_LONG_TIMEOUT_MS);
+                  const resLong = await withTimeout(runModel(GEMINI_MODEL_LONG, FULL_PROMPT), LONG_MS);
                   content = resLong.text; usedModel = GEMINI_MODEL_LONG;
                   attemptLog.push({ phase, model: usedModel, chars: content?.length || 0 });
                 } catch (eLong) {
                   phase = 'flash-reduced';
                   try {
                     const shortPrompt = FULL_PROMPT + "\n\n(Genera solo bloques JSON concisos.)";
-                    const resShort = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, shortPrompt), ADVICE_FALLBACK_TIMEOUT_MS);
+                    const resShort = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, shortPrompt), FALLBACK_MS);
                     content = resShort.text; usedModel = GEMINI_MODEL_FALLBACK + "-short";
                     attemptLog.push({ phase, model: usedModel, chars: content?.length || 0 });
                   } catch (eShort) {
@@ -372,7 +418,7 @@ ${wantTypesText}`;
                 phase = 'flash-reduced-fast';
                 try {
                   const shortPrompt = FULL_PROMPT + "\n\n(Genera solo bloques JSON concisos.)";
-                  const resShort = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, shortPrompt), ADVICE_FALLBACK_TIMEOUT_MS);
+                  const resShort = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, shortPrompt), FALLBACK_MS);
                   content = resShort.text; usedModel = GEMINI_MODEL_FALLBACK + "-short";
                   attemptLog.push({ phase, model: usedModel, chars: content?.length || 0 });
                 } catch (eShortFast) {
@@ -404,20 +450,20 @@ ${wantTypesText}`;
   if (ensureFull || strictMode) {
     const looksShort = !content || content.length < 1200 || /-short$/.test(usedModel || '');
     const isLocalFallback = (usedModel || '').startsWith('fallback');
-    if ((looksShort || isLocalFallback) && !FAST_MODE) {
+    if ((looksShort || isLocalFallback) && !USE_FAST) {
       try {
   const extraMs = strictMode ? 45000 : 15000;
   const extendedTimeout = ADVICE_LONG_TIMEOUT_MS + extraMs; // tiempo extendido
         const startRetry = Date.now();
-        const resExtended = await withTimeout(runModel(GEMINI_MODEL_LONG, MAIN_PROMPT), extendedTimeout);
+        const resExtended = await withTimeout(runModel(GEMINI_MODEL_LONG, FULL_PROMPT), extendedTimeout);
         content = resExtended.text;
         usedModel = GEMINI_MODEL_LONG + '-extended';
-        mainPhase = mainPhase + ':extended-long';
+        phase = phase + ':extended-long';
         // actualizar duración total sumando el retry
         genMs += (Date.now() - startRetry);
       } catch (eExtended) {
         // si falla, mantenemos el contenido previo
-        mainPhase = mainPhase + ':extended-fail';
+        phase = phase + ':extended-fail';
       }
     }
   }
@@ -505,12 +551,12 @@ ${wantTypesText}`;
           }
         }, watchdogLimit + 100);
       }
-      return NextResponse.json({ started: true }, { status: 202 });
+      return NextResponse.json({ started: true }, { status: 202, headers: { 'Retry-After': '10' } });
     }
 
     // Si hay una generación activa (iniciada vía prefetch) evitar trabajo duplicado y avisar al cliente
     if (activeGenerations.has(userId) && !forceLong) {
-      return NextResponse.json({ pending: true }, { status: 202 });
+      return NextResponse.json({ pending: true }, { status: 202, headers: { 'Retry-After': '10' } });
     }
 
   const prompt = basePrompt; // El contenido completo ya está en basePrompt, evitar duplicar texto crudo aquí
@@ -521,26 +567,135 @@ ${wantTypesText}`;
     // Use AI SDK to generate text (the provider reads GOOGLE_GENERATIVE_AI_API_KEY from env)
     async function runModel(modelName, fullPrompt) {
       console.log(`[advice] Intentando usar modelo: ${modelName}`);
-      console.log(`[advice] API Key configurada: ${process.env.GOOGLE_GENERATIVE_AI_API_KEY ? 'SÍ' : 'NO'}`);
-      console.log(`[advice] Longitud API Key: ${process.env.GOOGLE_GENERATIVE_AI_API_KEY?.length || 0}`);
+      // Informational: if a legacy GOOGLE_GENERATIVE_AI_API_KEY exists, log its presence in debug only.
+      if (process.env.GOOGLE_GENERATIVE_AI_API_KEY && (process.env.NODE_ENV !== 'production')) {
+        console.log(`[advice] GOOGLE_GENERATIVE_AI_API_KEY present (len=${process.env.GOOGLE_GENERATIVE_AI_API_KEY.length})`);
+      }
+      // Helper: sleep ms
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-      // Verificar si hay API key configurada
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-        console.error("[advice] GOOGLE_GENERATIVE_AI_API_KEY no configurada");
-        throw new Error("API key no configurada");
+      // Try calling generateText with retries and exponential backoff for retryable errors.
+      async function callWithRetries(modelSpec, prompt, opts = {}) {
+        const maxAttempts = Number.isFinite(MAX_ATTEMPTS_OVERRIDE) && MAX_ATTEMPTS_OVERRIDE > 0 ? MAX_ATTEMPTS_OVERRIDE : (opts.maxAttempts || 4);
+        const baseDelay = opts.baseDelay || 500; // ms
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            const res = await generateText({ model: modelSpec, prompt, temperature: 0.7, maxTokens: opts.maxTokens || MAX_TOKENS });
+            console.log(`[advice] modelo-call OK (attempt ${attempt}/${maxAttempts})`);
+            return res;
+          } catch (err) {
+            const isRetryable = err && (err.isRetryable || (err.statusCode && [429, 502, 503, 504].includes(err.statusCode)));
+            console.warn(`[advice] modelo-call error attempt ${attempt}/${maxAttempts}: ${err?.message || err}`);
+            if (!isRetryable) {
+              throw err;
+            }
+            if (attempt < maxAttempts) {
+              const delay = baseDelay * Math.pow(2, attempt - 1);
+              console.log(`[advice] retrying after ${delay}ms`);
+              await sleep(delay + Math.floor(Math.random() * 200));
+            } else {
+              // last attempt failed -> rethrow
+              throw err;
+            }
+          }
+        }
       }
 
       try {
-        const result = await generateText({
-          model: google(modelName),
-          prompt: fullPrompt,
-          temperature: 0.7,
-          maxTokens: 8192,
-        });
-        console.log(`[advice] Modelo ${modelName} respondió correctamente`);
-        return result;
+        // If an API key is present, prefer calling the Google provider wrapper directly
+        const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+        if (apiKey) {
+          console.log('[advice] GOOGLE_GENERATIVE_AI_API_KEY present -> using provider wrapper directly to avoid gateway routing');
+          try {
+            const googleModel = google(modelName, { apiKey });
+            return await callWithRetries(googleModel, fullPrompt, { maxAttempts: 3, baseDelay: 700, maxTokens: 8192 });
+          } catch (errWrapper) {
+            console.warn(`[advice] Provider-wrapped request failed: ${errWrapper?.message || errWrapper}`);
+            // Last attempt with a reduced prompt
+            try {
+              const shortPrompt = fullPrompt + "\n\n(Respuesta concisa: genera solo los bloques JSON pedidos y un breve análisis.)";
+              const googleModel2 = google(modelName, { apiKey });
+              return await callWithRetries(googleModel2, shortPrompt, { maxAttempts: 2, baseDelay: 800, maxTokens: 2400 });
+            } catch (errShort) {
+              console.warn(`[advice] Short prompt attempt failed: ${errShort?.message || errShort}`);
+              // Si preferimos alternativos primero o tras fallar, intentar ALT_MODELS
+              if (PREFER_ALT_FIRST && ALT_MODELS.length) {
+                for (const alt of ALT_MODELS) {
+                  try {
+                    const altModel = google(alt, { apiKey });
+                    const resAlt = await callWithRetries(altModel, fullPrompt, { maxAttempts: 1, baseDelay: 500, maxTokens: MAX_TOKENS });
+                    console.log(`[advice] alt-first OK -> ${alt}`);
+                    return resAlt;
+                  } catch (eAlt) { console.warn(`[advice] alt-first fail ${alt}: ${eAlt?.message || eAlt}`); }
+                }
+              }
+              throw errShort;
+            }
+          }
+        } else {
+          // No API key: try plain model name via provider routing first, then the provider wrapper without explicit key
+          try {
+            return await callWithRetries(modelName, fullPrompt, { maxAttempts: 3, baseDelay: 500, maxTokens: 8192 });
+          } catch (errPlain) {
+            console.warn(`[advice] Plain model name request failed, will retry with provider wrapper: ${errPlain?.message || errPlain}`);
+            try {
+              const googleModel = google(modelName);
+              return await callWithRetries(googleModel, fullPrompt, { maxAttempts: 3, baseDelay: 700, maxTokens: 8192 });
+            } catch (errWrapper) {
+              console.warn(`[advice] Provider-wrapped request failed: ${errWrapper?.message || errWrapper}`);
+              try {
+                const shortPrompt = fullPrompt + "\n\n(Respuesta concisa: genera solo los bloques JSON pedidos y un breve análisis.)";
+                const googleModel2 = google(modelName);
+                return await callWithRetries(googleModel2, shortPrompt, { maxAttempts: 2, baseDelay: 800, maxTokens: 2400 });
+              } catch (errShort) {
+                console.warn(`[advice] Short prompt attempt failed: ${errShort?.message || errShort}`);
+                if (PREFER_ALT_FIRST && ALT_MODELS.length) {
+                  for (const alt of ALT_MODELS) {
+                    try {
+                      const altModel = google(alt);
+                      const resAlt = await callWithRetries(altModel, fullPrompt, { maxAttempts: 1, baseDelay: 500, maxTokens: MAX_TOKENS });
+                      console.log(`[advice] alt-first OK -> ${alt}`);
+                      return resAlt;
+                    } catch (eAlt) { console.warn(`[advice] alt-first fail ${alt}: ${eAlt?.message || eAlt}`); }
+                  }
+                }
+                throw errShort;
+              }
+            }
+          }
+        }
       } catch (error) {
-        console.error(`[advice] Error con modelo ${modelName}:`, error.message);
+        // If quota exceeded or resource exhausted, or provider overloaded, gestionar fallbacks/alternativos
+        try {
+          const statusCode = error?.statusCode || (error?.data && error.data.error && error.data.error.code) || null;
+          const msg = String(error?.message || '');
+          const isQuota = statusCode === 429 || /quota exceeded|RESOURCE_EXHAUSTED|generate_content_free_tier_requests/i.test(msg);
+          const isOverloaded = statusCode === 503 || /overloaded|UNAVAILABLE/i.test(msg);
+          if (isQuota) {
+            console.warn(`[advice] Modelo quota exceeded detected (status=${statusCode}). Generando fallback local inmediato.`);
+            const fb = await generateFallbackContent();
+            // Return an object compatible with generateText result (.text)
+            return { text: fb.content, usedModel: fb.usedModel, genMs: fb.genMs, quota: true };
+          }
+          // Failover: intentar modelos alternativos si el proveedor está sobrecargado
+          if (isOverloaded && ALT_MODELS.length) {
+            console.warn(`[advice] Modelo principal sobrecargado (status=${statusCode}). Intentando modelos alternativos: ${ALT_MODELS.join(', ')}`);
+            for (const alt of ALT_MODELS) {
+              try {
+                const altModel = process.env.GOOGLE_GENERATIVE_AI_API_KEY ? google(alt, { apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY }) : google(alt);
+                const resAlt = await callWithRetries(altModel, /* usar prompt completo */ fullPrompt, { maxAttempts: 1, baseDelay: 500, maxTokens: MAX_TOKENS });
+                console.log(`[advice] alt-model OK -> ${alt}`);
+                return resAlt;
+              } catch (eAlt) {
+                console.warn(`[advice] alt-model fail ${alt}: ${eAlt?.message || eAlt}`);
+                continue;
+              }
+            }
+          }
+        } catch (e2) {
+          console.error('[advice] Error al procesar quota fallback:', e2);
+        }
+        console.error(`[advice] Error con modelo ${modelName}:`, error?.message || error);
         console.error(`[advice] Error completo:`, error);
         throw error;
       }
@@ -557,6 +712,8 @@ ${wantTypesText}`;
 
   let content = null;
   let usedModel = GEMINI_MODEL_LONG; // será reemplazado por flash si estrategia flash-first
+  // Aplicar overrides de modelo efectivos
+  usedModel = EFFECTIVE_MODEL_LONG;
   let genMs = null; // tiempo de generación (se setea al final si no hubo fallback previo)
   let mainPhase = 'init';
     const t0 = Date.now();
@@ -568,24 +725,24 @@ ${wantTypesText}`;
         // Flash-first
         try {
           mainPhase = 'flash-primary';
-          const resFlash = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, MAIN_PROMPT), ADVICE_FLASH_TIMEOUT_MS);
-          content = resFlash.text; usedModel = GEMINI_MODEL_FALLBACK;
+          const resFlash = await withTimeout(runModel(EFFECTIVE_MODEL_FALLBACK, MAIN_PROMPT), ADVICE_FLASH_TIMEOUT_MS);
+          content = resFlash.text; usedModel = EFFECTIVE_MODEL_FALLBACK;
           console.log('[advice][main] flash-primary chars=', content?.length || 0);
         } catch (eFlash) {
-          if (!FAST_MODE) {
+          if (!USE_FAST) {
             // Intentar long
             try {
               mainPhase = 'long-after-flash-fail';
-              const resLong = await withTimeout(runModel(GEMINI_MODEL_LONG, MAIN_PROMPT), ADVICE_LONG_TIMEOUT_MS);
-              content = resLong.text; usedModel = GEMINI_MODEL_LONG;
+              const resLong = await withTimeout(runModel(EFFECTIVE_MODEL_LONG, MAIN_PROMPT), ADVICE_LONG_TIMEOUT_MS);
+              content = resLong.text; usedModel = EFFECTIVE_MODEL_LONG;
               console.log('[advice][main] long-after-flash-fail chars=', content?.length || 0);
             } catch (eLong) {
               // Prompt reducido
               const shortPrompt = MAIN_PROMPT + "\n\n(Genera solo los bloques JSON pedidos y muy conciso.)";
               try {
                 mainPhase = 'short-after-long-fail';
-                const resShort = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, shortPrompt), ADVICE_FALLBACK_TIMEOUT_MS);
-                content = resShort.text; usedModel = GEMINI_MODEL_FALLBACK + "-short";
+                const resShort = await withTimeout(runModel(EFFECTIVE_MODEL_FALLBACK, shortPrompt), ADVICE_FALLBACK_TIMEOUT_MS);
+                content = resShort.text; usedModel = EFFECTIVE_MODEL_FALLBACK + "-short";
                 console.log('[advice][main] short-after-long-fail chars=', content?.length || 0);
               } catch (eShort) {
                 // Si en este punto content sigue vacío realmente (todas las ramas IA fallaron) sólo entonces consideramos fallback
@@ -605,8 +762,8 @@ ${wantTypesText}`;
             const shortPrompt = MAIN_PROMPT + "\n\n(Genera solo los bloques JSON pedidos y muy conciso.)";
             try {
               mainPhase = 'short-fast';
-              const resShortFast = await withTimeout(runModel(GEMINI_MODEL_FALLBACK, shortPrompt), ADVICE_FALLBACK_TIMEOUT_MS);
-              content = resShortFast.text; usedModel = GEMINI_MODEL_FALLBACK + "-short";
+              const resShortFast = await withTimeout(runModel(EFFECTIVE_MODEL_FALLBACK, shortPrompt), ADVICE_FALLBACK_TIMEOUT_MS);
+              content = resShortFast.text; usedModel = EFFECTIVE_MODEL_FALLBACK + "-short";
               console.log('[advice][main] short-fast chars=', content?.length || 0);
             } catch (eShortFast) {
               if (!content) {
@@ -870,12 +1027,12 @@ ${wantTypesText}`;
   const isFallback = (usedModel || '').startsWith('fallback');
   const baseResponse = { advice: content, summary, meals, hydration, beverages: beveragesPlan, model: usedModel, took_ms: genMs, fallback: isFallback };
   if (debugMode) {
-    baseResponse.debug = { mainPhase, content_chars: content ? content.length : 0, wantTypesOrder, forceLong, FAST_MODE };
+    baseResponse.debug = { mainPhase, content_chars: content ? content.length : 0, wantTypesOrder, forceLong, FAST_MODE, USE_FAST, models: { primary_long: EFFECTIVE_MODEL_LONG, primary_fast: EFFECTIVE_MODEL_FALLBACK, alts: ALT_MODELS } };
     if (debugPromptOnly) {
       baseResponse.debug.prompt = MAIN_PROMPT; // incluir el prompt completo si se pide
     }
   } else if (debugPromptOnly) {
-    baseResponse.debug = { prompt: MAIN_PROMPT };
+    baseResponse.debug = { prompt: MAIN_PROMPT, USE_FAST };
   }
   if (showPrompt && !baseResponse.debug) {
     baseResponse.debug = { prompt: MAIN_PROMPT };
