@@ -23,7 +23,11 @@ CREATE TABLE "Usuario" (
     "grasas_g_obj" REAL,
     "carbohidratos_g_obj" REAL,
     "agua_litros_obj" REAL,
-    "plan_ai" JSONB
+    "objetivo_eta_semanas" REAL,
+    "objetivo_eta_fecha" DATETIME,
+    "plan_ai" JSONB,
+    "measurement_interval_weeks" INTEGER,
+    "dias_dieta" JSONB
 );
 
 -- CreateTable
@@ -44,6 +48,7 @@ CREATE TABLE "Alimento" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "nombre" TEXT NOT NULL,
     "categoria" TEXT,
+    "categoria_enum" TEXT,
     "calorias" REAL,
     "proteinas" REAL,
     "carbohidratos" REAL,
@@ -112,6 +117,13 @@ CREATE TABLE "ProgresoCorporal" (
     "cintura_cm" REAL,
     "cadera_cm" REAL,
     "cuello_cm" REAL,
+    "pecho_cm" REAL,
+    "brazo_cm" REAL,
+    "muslo_cm" REAL,
+    "gluteo_cm" REAL,
+    "foto_url" TEXT,
+    "notas" TEXT,
+    "fuente" TEXT,
     CONSTRAINT "ProgresoCorporal_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "Usuario" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -139,14 +151,35 @@ CREATE TABLE "CumplimientoComida" (
 );
 
 -- CreateTable
+CREATE TABLE "CumplimientoDieta" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "usuarioId" INTEGER NOT NULL,
+    "fecha" DATETIME NOT NULL,
+    "cumplido" BOOLEAN NOT NULL,
+    CONSTRAINT "CumplimientoDieta_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "Usuario" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "UsuarioAlimento" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "usuarioId" INTEGER NOT NULL,
     "alimentoId" INTEGER NOT NULL,
     "categoria" TEXT,
+    "categoria_enum" TEXT,
     "prioridad" INTEGER,
     CONSTRAINT "UsuarioAlimento_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "Usuario" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "UsuarioAlimento_alimentoId_fkey" FOREIGN KEY ("alimentoId") REFERENCES "Alimento" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "UsuarioBebida" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "usuarioId" INTEGER NOT NULL,
+    "bebidaId" INTEGER NOT NULL,
+    "ml" INTEGER NOT NULL,
+    "momento" TEXT,
+    CONSTRAINT "UsuarioBebida_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "Usuario" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "UsuarioBebida_bebidaId_fkey" FOREIGN KEY ("bebidaId") REFERENCES "Alimento" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateIndex
@@ -159,6 +192,12 @@ CREATE UNIQUE INDEX "Auth_email_key" ON "Auth"("email");
 CREATE INDEX "HidratacionDia_usuarioId_fecha_idx" ON "HidratacionDia"("usuarioId", "fecha");
 
 -- CreateIndex
+CREATE INDEX "ProgresoCorporal_usuarioId_fecha_idx" ON "ProgresoCorporal"("usuarioId", "fecha");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ProgresoCorporal_usuarioId_fecha_key" ON "ProgresoCorporal"("usuarioId", "fecha");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "PlanComida_usuarioId_comida_tipo_key" ON "PlanComida"("usuarioId", "comida_tipo");
 
 -- CreateIndex
@@ -169,3 +208,6 @@ CREATE UNIQUE INDEX "CumplimientoComida_usuarioId_fecha_comida_tipo_key" ON "Cum
 
 -- CreateIndex
 CREATE UNIQUE INDEX "UsuarioAlimento_usuarioId_alimentoId_key" ON "UsuarioAlimento"("usuarioId", "alimentoId");
+
+-- CreateIndex
+CREATE INDEX "UsuarioBebida_usuarioId_idx" ON "UsuarioBebida"("usuarioId");
