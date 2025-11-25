@@ -5,10 +5,20 @@ function log(message) {
 	console.log(`[verify-prisma] ${message}`);
 }
 
-if (!process.env.TURSO_DATABASE_URL) {
-	process.env.TURSO_DATABASE_URL = 'file:./dev.db';
-	log('TURSO_DATABASE_URL no definido. Usando fallback file:./dev.db solo para validaciones.');
+const FALLBACK_FILE_URL = 'file:./dev.db';
+
+function forceFileDatasource(varName) {
+	const current = process.env[varName];
+	if (!current) {
+		log(`${varName} no definido. Usando fallback ${FALLBACK_FILE_URL} solo para validaciones.`);
+	} else if (!current.startsWith('file:')) {
+		log(`${varName} apunta a "${current}". Sobrescribiendo temporalmente con ${FALLBACK_FILE_URL} para comandos de Prisma CLI.`);
+	}
+	process.env[varName] = FALLBACK_FILE_URL;
 }
+
+forceFileDatasource('TURSO_DATABASE_URL');
+forceFileDatasource('DATABASE_URL');
 
 function run(command, description) {
 	try {
