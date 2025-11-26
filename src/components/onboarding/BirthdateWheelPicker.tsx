@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
@@ -46,7 +47,10 @@ function WheelColumn<T extends WheelValue>({
 }) {
   const activeRef = useRef<HTMLButtonElement | null>(null);
   const index = values.findIndex((v) => v === selected);
-  const valuesSignature = useMemo(() => values.map((v) => String(v)).join("|"), [values]);
+  const valuesSignature = useMemo(
+    () => values.map((v) => String(v)).join("|"),
+    [values]
+  );
 
   useEffect(() => {
     const activeNode = activeRef.current;
@@ -86,7 +90,8 @@ function WheelColumn<T extends WheelValue>({
           const isActive = value === selected;
           const baseClasses =
             "snap-center w-full h-11 rounded-full text-sm font-semibold transition-all duration-200 transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
-          const activeClasses = "bg-primary text-primary-foreground shadow-lg scale-100";
+          const activeClasses =
+            "bg-primary text-primary-foreground shadow-lg scale-100";
           const inactiveClasses =
             "bg-muted/70 text-muted-foreground border border-border/60 scale-[0.94] opacity-80 hover:opacity-100 hover:bg-muted";
           return (
@@ -95,7 +100,9 @@ function WheelColumn<T extends WheelValue>({
               type="button"
               role="option"
               aria-selected={isActive}
-              className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
+              className={`${baseClasses} ${
+                isActive ? activeClasses : inactiveClasses
+              }`}
               onClick={() => onSelect(value)}
               ref={isActive ? activeRef : undefined}
             >
@@ -159,6 +166,17 @@ export function BirthdateWheelPicker({
     onChange(next);
   }
 
+  const currentSelection = useMemo(
+    () => new Date(selectedYear, selectedMonth, selectedDay),
+    [selectedDay, selectedMonth, selectedYear]
+  );
+
+  const selectionText = currentSelection.toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
   const label = value
     ? value.toLocaleDateString("es-ES", {
         day: "2-digit",
@@ -177,6 +195,9 @@ export function BirthdateWheelPicker({
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
           <DialogTitle>Selecciona tu fecha</DialogTitle>
+          <DialogDescription className="text-sm font-medium text-foreground">
+            {selectionText}
+          </DialogDescription>
         </DialogHeader>
         <p className="text-xs text-muted-foreground mb-3">
           Toca cualquier valor, usa las flechas flotantes o desliza las columnas
@@ -201,6 +222,12 @@ export function BirthdateWheelPicker({
             selected={selectedYear}
             onSelect={(val) => handleSelect("year", val)}
           />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setOpen(false)}>
+            Cancelar
+          </Button>
+          <Button onClick={() => setOpen(false)}>Aceptar</Button>
         </div>
       </DialogContent>
     </Dialog>
