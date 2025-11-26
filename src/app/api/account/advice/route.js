@@ -2144,6 +2144,75 @@ ${wantTypesText}`;
       });
     }
 
+    // Si IA devolvió solo `meals.items` (lista aplanada) pero no hay `weekly`,
+    // construir un `weekly` repetido con los tipos detectados para toda la semana.
+    try {
+      if (!weeklyPlanFromJson && meals && Array.isArray(meals.items) && meals.items.length) {
+        const items = meals.items;
+        // Detectar si los items ya contienen un campo 'dia'/'day'
+        const hasDay = items.some((it) => it && (it.dia || it.day));
+        if (!hasDay) {
+          // Agrupar por tipo (usar la primera instancia por tipo)
+          const byTipo = {};
+          for (const it of items) {
+            try {
+              const rawTipo = it && (it.tipo || it.type || it.meal || it.nombre);
+              const t = normalizeTipoComida(rawTipo) || "Snack";
+              if (!byTipo[t]) byTipo[t] = it;
+            } catch {}
+          }
+          const tipos = Object.keys(byTipo);
+          if (tipos.length) {
+            const order = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+            const constructed = order.map((day) => ({
+              day,
+              active: true,
+              meals: tipos.map((t) => {
+                const src = byTipo[t];
+                const nombre = (src && (src.nombre || src.name || src.title)) || src?.nombre || '';
+                const itemsText = Array.isArray(src?.itemsText)
+                  ? src.itemsText
+                  : (Array.isArray(src?.items)
+                      ? src.items.map((it2) => (typeof it2 === 'string' ? it2 : (it2?.nombre || it2?.name || JSON.stringify(it2))))
+                      : (Array.isArray(src?.ingredientes)
+                          ? src.ingredientes.map((ing) => (ing?.nombre ? `${ing.nombre}${ing.gramos ? ` (${ing.gramos} g)` : ''}` : JSON.stringify(ing)))
+                          : []));
+                const mealObj = {
+                  tipo: t,
+                  receta: { nombre: nombre || `Comida` },
+                  itemsText: itemsText && itemsText.length ? itemsText : undefined,
+                };
+                if (Array.isArray(src?.ingredientes) && src.ingredientes.length) mealObj.ingredientes = src.ingredientes;
+                if (src?.targetProteinG != null) mealObj.targetProteinG = src.targetProteinG;
+                return mealObj;
+              }),
+            }));
+            weeklyPlanFromJson = constructed;
+          }
+        } else {
+          // Si los items contienen 'dia', agrupar bajo esos días normalizando claves
+          const byDay = {};
+          for (const it of items) {
+            try {
+              const rawDay = it?.dia || it?.day;
+              const dayKey = normalizeDayKey(rawDay) || String(rawDay);
+              if (!byDay[dayKey]) byDay[dayKey] = [];
+              const tipo = normalizeTipoComida(it?.tipo) || 'Snack';
+              byDay[dayKey].push({
+                tipo,
+                receta: { nombre: it?.nombre || it?.name || it?.title || '' },
+                itemsText: Array.isArray(it?.itemsText) ? it.itemsText : undefined,
+                ingredientes: Array.isArray(it?.ingredientes) ? it.ingredientes : undefined,
+                targetProteinG: it?.targetProteinG != null ? it.targetProteinG : undefined,
+              });
+            } catch {}
+          }
+          const constructed = Object.keys(byDay).map((d) => ({ day: d, active: true, meals: byDay[d] }));
+          if (constructed.length) weeklyPlanFromJson = constructed;
+        }
+      }
+    } catch {}
+
     // Helper: generar items básicos por tipo a partir de alimentos guardados
     async function generateBasicItemsByTypes(userId, types) {
       const saved = await prisma.usuarioAlimento.findMany({
