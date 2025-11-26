@@ -39,6 +39,7 @@ export function Hero() {
     useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [installNotice, setInstallNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -54,6 +55,8 @@ export function Hero() {
     const handleInstalled = () => {
       setInstallPrompt(null);
       setIsStandalone(true);
+      setInstallNotice("La app ya está en el escritorio de tu celular.");
+      setTimeout(() => setInstallNotice(null), 6000);
     };
 
     window.addEventListener(
@@ -81,7 +84,11 @@ export function Hero() {
       setInstalling(true);
       try {
         await installPrompt.prompt();
-        await installPrompt.userChoice;
+          const choice = await installPrompt.userChoice;
+          if (choice && choice.outcome === "accepted") {
+            setInstallNotice("La app ya está en el escritorio de tu celular.");
+            setTimeout(() => setInstallNotice(null), 6000);
+          }
       } finally {
         setInstalling(false);
         setInstallPrompt(null);
@@ -95,7 +102,7 @@ export function Hero() {
   const primaryCtaLabel = useMemo(() => {
     if (isStandalone) return "Abrir FitBalance";
     if (installing) return "Abriendo instalación…";
-    return "Instalar FitBalance";
+    return "Instalar — Android/iOS";
   }, [isStandalone, installing]);
 
   const primaryCtaDisabled = installing;
@@ -144,6 +151,9 @@ export function Hero() {
             >
               {primaryCtaLabel}
             </button>
+            {installNotice && (
+              <div className="mt-2 text-sm text-emerald-700">{installNotice}</div>
+            )}
             <Link
               href="/auth/login"
               className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-3 text-base font-semibold text-slate-600 transition hover:border-slate-400"
