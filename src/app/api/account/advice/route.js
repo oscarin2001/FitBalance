@@ -1769,6 +1769,51 @@ ${wantTypesText}`;
       const sObj = extractJsonBlock("JSON_SUMMARY", content);
       if (sObj && typeof sObj === "object") summary = sObj;
       let mObj = extractJsonBlock("JSON_MEALS", content);
+      // Si el modelo devolvió un wrapper con JSON_MEALS dentro, desanidar
+      try {
+        if (mObj && typeof mObj === 'object') {
+          const key = Object.keys(mObj).find(k => String(k).toLowerCase() === 'json_meals');
+          if (key && mObj[key] && typeof mObj[key] === 'object') {
+            mObj = mObj[key];
+          }
+        }
+      } catch {}
+      // Detección: algunos modelos devuelven JSON_MEALS agrupado por tipo de comida
+      // p.ej. { "Desayuno": { "Día 1": "...", "Día 2": "..." }, "Almuerzo": { ... } }
+      // Convertir esa forma a un objeto semanal { "Lunes": [ {...}, ... ], ... }
+      try {
+        if (mObj && typeof mObj === 'object' && !Array.isArray(mObj)) {
+          const mealTypeKeys = Object.keys(mObj || {});
+          const knownTypes = mealTypeKeys.filter(k => /desayuno|almuerzo|cena|snack/i.test(k));
+          if (knownTypes.length && mealTypeKeys.length === knownTypes.length) {
+            const dayOrder = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+            const dayMap = {}; // dayName -> array of meal raw entries
+            for (const typeKey of mealTypeKeys) {
+              const dayObj = mObj[typeKey];
+              if (!dayObj || typeof dayObj !== 'object') continue;
+              for (const [rawDayKey, rawVal] of Object.entries(dayObj)) {
+                let dayName = normalizeDayKey(rawDayKey);
+                if (!dayName) {
+                  const m = String(rawDayKey).match(/día\s*(\d+)/i);
+                  if (m && m[1]) {
+                    const idx = Number(m[1]) - 1;
+                    dayName = dayOrder[idx] || null;
+                  }
+                }
+                if (!dayName) continue;
+                if (!dayMap[dayName]) dayMap[dayName] = [];
+                // construir entrada compatible con convertWeeklyPlanObject expectations
+                dayMap[dayName].push({ tipo: typeKey, ...(typeof rawVal === 'string' ? { descripcion: rawVal } : rawVal) });
+              }
+            }
+            // Reemplazar mObj por objeto con claves por día
+            const constructed = {};
+            for (const dn of Object.keys(dayMap)) constructed[dn] = dayMap[dn];
+            // Sólo sustituir si construimos al menos un día
+            if (Object.keys(constructed).length) mObj = constructed;
+          }
+        }
+      } catch {}
       // Si el bloque extraído es un objeto wrapper que contiene una clave "JSON_MEALS"
       // (p. ej. el modelo devolvió un único objeto con JSON_SUMMARY y JSON_MEALS dentro),
       // entonces desanidar para obtener el verdadero objeto de comidas.
