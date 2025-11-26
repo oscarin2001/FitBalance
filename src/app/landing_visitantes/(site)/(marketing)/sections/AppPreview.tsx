@@ -118,7 +118,7 @@ function MockupImage({ slide }: { slide: Slide }) {
       alt={slide.title}
       width={1400}
       height={900}
-      className="h-72 w-full rounded-2xl border border-slate-100 object-cover shadow-lg"
+      className="h-56 md:h-72 w-full rounded-2xl border border-slate-100 object-cover shadow-lg"
       priority={slide.title === "Plan diario"}
       onError={() => setFailed(true)}
     />
