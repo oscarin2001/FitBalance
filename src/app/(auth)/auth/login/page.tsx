@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { FcGoogle } from 'react-icons/fc';
-import { signIn } from 'next-auth/react';
+import { FcGoogle } from "react-icons/fc";
+import { signIn } from "next-auth/react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff } from "lucide-react";
@@ -15,7 +15,11 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<{ email?: string; password?: string; server?: string }>({});
+  const [errors, setErrors] = useState<{
+    email?: string;
+    password?: string;
+    server?: string;
+  }>({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -24,7 +28,8 @@ export default function LoginPage() {
     const e: typeof errors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRegex.test(email)) e.email = "Email inválido";
-    if (!password || password.length < 8) e.password = "La contraseña debe tener al menos 8 caracteres";
+    if (!password || password.length < 8)
+      e.password = "La contraseña debe tener al menos 8 caracteres";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -33,7 +38,8 @@ export default function LoginPage() {
     e.preventDefault();
     setErrors({});
     if (!validate()) {
-      const msg = errors.email || errors.password || "Revisa los campos del formulario";
+      const msg =
+        errors.email || errors.password || "Revisa los campos del formulario";
       toast.error(msg);
       return;
     }
@@ -59,11 +65,18 @@ export default function LoginPage() {
       });
       try {
         // Verificar estado de onboarding para redirigir a pasos si corresponde
-        const st = await fetch("/api/auth/onboarding/status", { cache: "no-store", credentials: "include" });
+        const st = await fetch("/api/auth/onboarding/status", {
+          cache: "no-store",
+          credentials: "include",
+        });
         if (st.ok) {
-          const { step, completed } = await st.json().catch(() => ({ step: null, completed: true }));
+          const { step, completed } = await st
+            .json()
+            .catch(() => ({ step: null, completed: true }));
           if (!completed && step) {
-            router.replace(step === "sex" ? "/onboarding/sex" : `/onboarding/${step}`);
+            router.replace(
+              step === "sex" ? "/onboarding/sex" : `/onboarding/${step}`
+            );
             return;
           }
         }
@@ -79,18 +92,25 @@ export default function LoginPage() {
   }
 
   return (
-  <div className="px-6 py-4 max-w-sm mx-auto space-y-4 bg-white rounded-lg border border-gray-300 shadow">
+    <div className="px-6 py-4 max-w-sm mx-auto space-y-4 bg-white rounded-lg border border-gray-300 shadow">
       <div className="flex flex-col items-center">
         {/* Logo: coloca tu logo en `public/images/logo.svg` (se sirve desde /images/logo.svg) */}
-          <img
-            src="/images/logo.svg"
-            alt="Logo"
-            className="h-28 w-28 mb-2 rounded-full border border-gray-200 bg-white p-2 object-contain shadow-sm"
-          />
+        <img
+          src="/images/logo.svg"
+          alt="Logo"
+          className="h-28 w-28 mb-2 rounded-full border border-gray-200 bg-white p-2 object-contain shadow-sm"
+        />
         <h1 className="text-2xl font-semibold">FitBalance</h1>
-        <p className="text-sm text-muted-foreground">Inicia sesión con tu cuenta</p>
+        <p className="text-sm text-muted-foreground">
+          Inicia sesión con tu cuenta
+        </p>
       </div>
-  <form action="/auth/login" method="POST" onSubmit={onSubmit} className="grid gap-6">
+      <form
+        action="/auth/login"
+        method="POST"
+        onSubmit={onSubmit}
+        className="grid gap-6"
+      >
         <div className="grid gap-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -100,7 +120,9 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          {errors.email && <p className="text-sm text-red-600">{errors.email}</p>}
+          {errors.email && (
+            <p className="text-sm text-red-600">{errors.email}</p>
+          )}
         </div>
 
         <div className="grid gap-2">
@@ -123,17 +145,24 @@ export default function LoginPage() {
             />
             <button
               type="button"
-              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+              aria-label={
+                showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+              }
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
               onClick={() => setShowPassword((s) => !s)}
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
-          {errors.password && <p className="text-sm text-red-600">{errors.password}</p>}
+          {errors.password && (
+            <p className="text-sm text-red-600">{errors.password}</p>
+          )}
         </div>
 
-        <label htmlFor="remember" className="flex items-center gap-2 text-sm select-none cursor-pointer">
+        <label
+          htmlFor="remember"
+          className="flex items-center gap-2 text-sm select-none cursor-pointer"
+        >
           <Checkbox
             id="remember"
             checked={remember}
@@ -152,11 +181,16 @@ export default function LoginPage() {
         </Button>
 
         <div className="relative">
-          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+          <div
+            className="absolute inset-0 flex items-center"
+            aria-hidden="true"
+          >
             <span className="w-full border-t" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-white px-2 text-muted-foreground">o continúa con</span>
+            <span className="bg-white px-2 text-muted-foreground">
+              o continúa con
+            </span>
           </div>
         </div>
 
@@ -164,11 +198,10 @@ export default function LoginPage() {
           type="button"
           variant="outline"
           className="w-full flex items-center gap-2"
-          onClick={() => signIn('google', { callbackUrl: '/onboarding' })}
+          onClick={() => signIn("google", { callbackUrl: "/onboarding" })}
         >
           <FcGoogle className="h-5 w-5" /> Google
         </Button>
-
       </form>
     </div>
   );

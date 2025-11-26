@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 // Place a 1400x900 PNG/JPG at public/assets/landing/hero/app-preview.png to update the hero mockup.
 const HERO_IMAGE_SRC = "/assets/landing/hero/app-preview.png";
-const HERO_IMAGE_ALT = "Vista previa del panel FitBalance mostrando planes y recordatorios";
+const HERO_IMAGE_ALT =
+  "Vista previa del panel FitBalance mostrando planes y recordatorios";
 
 const accent = {
   primary: "#2f855a",
@@ -34,7 +35,8 @@ export function Hero() {
     { label: "Roadmap", href: "#roadmap" },
   ];
 
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installPrompt, setInstallPrompt] =
+    useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
 
@@ -54,11 +56,17 @@ export function Hero() {
       setIsStandalone(true);
     };
 
-    window.addEventListener("beforeinstallprompt", handleBeforeInstall as EventListener);
+    window.addEventListener(
+      "beforeinstallprompt",
+      handleBeforeInstall as EventListener
+    );
     window.addEventListener("appinstalled", handleInstalled);
 
     return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstall as EventListener);
+      window.removeEventListener(
+        "beforeinstallprompt",
+        handleBeforeInstall as EventListener
+      );
       window.removeEventListener("appinstalled", handleInstalled);
     };
   }, []);
@@ -100,7 +108,10 @@ export function Hero() {
           <ul className="flex gap-6 text-sm font-medium">
             {navLinks.map((item) => (
               <li key={item.href}>
-                <a href={item.href} className="text-slate-500 transition hover:text-slate-900">
+                <a
+                  href={item.href}
+                  className="text-slate-500 transition hover:text-slate-900"
+                >
                   {item.label}
                 </a>
               </li>
@@ -113,12 +124,14 @@ export function Hero() {
           </div>
           <div className="mx-auto max-w-4xl space-y-6">
             <h1 className="font-serif text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
-              Inicia como una persona normal y deja que la IA te asesore con planes accesibles.
+              Inicia como una persona normal y deja que la IA te asesore con
+              planes accesibles.
             </h1>
             <p className="text-base text-slate-600 md:text-lg">
-              FitBalance es una app web ligera pensada para quienes no pueden pagar consultas privadas. Respondes en
-              lenguaje cotidiano y nuestro acompañamiento digital toma esas respuestas para sugerirte comidas,
-              hidratación y recordatorios fáciles de seguir.
+              FitBalance es una app web ligera pensada para quienes no pueden
+              pagar consultas privadas. Respondes en lenguaje cotidiano y
+              nuestro acompañamiento digital toma esas respuestas para sugerirte
+              comidas, hidratación y recordatorios fáciles de seguir.
             </p>
           </div>
           <div className="flex flex-col items-center justify-center gap-4 md:flex-row">

@@ -2,7 +2,13 @@
 
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 const monthsES = [
@@ -38,18 +44,15 @@ function WheelColumn<T extends WheelValue>({
   onSelect: (next: T) => void;
   ariaLabel: string;
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const itemHeight = 44; // px
+  const activeRef = useRef<HTMLButtonElement | null>(null);
   const index = values.findIndex((v) => v === selected);
+  const valuesSignature = useMemo(() => values.map((v) => String(v)).join("|"), [values]);
 
   useEffect(() => {
-    const node = containerRef.current;
-    if (!node) return;
-    const idx = values.findIndex((v) => v === selected);
-    if (idx < 0) return;
-    const target = Math.max(0, idx * itemHeight - itemHeight);
-    node.scrollTo({ top: target, behavior: "smooth" });
-  }, [selected, values, itemHeight]);
+    const activeNode = activeRef.current;
+    if (!activeNode) return;
+    activeNode.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [selected, valuesSignature]);
 
   const selectRelative = (delta: number) => {
     const nextIdx = Math.min(Math.max(index + delta, 0), values.length - 1);
@@ -73,7 +76,6 @@ function WheelColumn<T extends WheelValue>({
       </button>
       <div className="pointer-events-none absolute inset-x-2 top-1/2 -translate-y-1/2 rounded-md border border-primary/40 bg-primary/5 h-10" />
       <div
-        ref={containerRef}
         className="h-48 overflow-y-auto snap-y snap-mandatory scroll-smooth px-2 pb-4 pt-6"
         aria-label={ariaLabel}
         role="listbox"
@@ -82,16 +84,20 @@ function WheelColumn<T extends WheelValue>({
         <div className="absolute inset-x-0 bottom-8 h-8 bg-gradient-to-t from-background via-transparent pointer-events-none" />
         {values.map((value) => {
           const isActive = value === selected;
+          const baseClasses =
+            "snap-center w-full h-11 rounded-full text-sm font-semibold transition-all duration-200 transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
+          const activeClasses = "bg-primary text-primary-foreground shadow-lg scale-100";
+          const inactiveClasses =
+            "bg-muted/70 text-muted-foreground border border-border/60 scale-[0.94] opacity-80 hover:opacity-100 hover:bg-muted";
           return (
             <button
               key={String(value)}
               type="button"
               role="option"
               aria-selected={isActive}
-              className={`snap-center w-full py-2 rounded-md text-sm transition font-medium ${
-                isActive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-              }`}
+              className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
               onClick={() => onSelect(value)}
+              ref={isActive ? activeRef : undefined}
             >
               {value}
             </button>
@@ -144,7 +150,8 @@ export function BirthdateWheelPicker({
     let nextMonth = selectedMonth;
     let nextDay = selectedDay;
     if (part === "day" && typeof raw === "number") nextDay = raw;
-    if (part === "month" && typeof raw === "string") nextMonth = monthsES.indexOf(raw);
+    if (part === "month" && typeof raw === "string")
+      nextMonth = monthsES.indexOf(raw);
     if (part === "year" && typeof raw === "number") nextYear = raw;
     if (nextMonth < 0) nextMonth = 0;
     nextDay = clampDay(nextYear, nextMonth, nextDay);
@@ -153,7 +160,11 @@ export function BirthdateWheelPicker({
   }
 
   const label = value
-    ? value.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })
+    ? value.toLocaleDateString("es-ES", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      })
     : "Selecciona tu fecha";
 
   return (
@@ -168,7 +179,8 @@ export function BirthdateWheelPicker({
           <DialogTitle>Selecciona tu fecha</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground mb-3">
-          Toca cualquier valor, usa las flechas flotantes o desliza las columnas para ajustar día, mes y año.
+          Toca cualquier valor, usa las flechas flotantes o desliza las columnas
+          para ajustar día, mes y año.
         </p>
         <div className="flex gap-3 mt-2">
           <WheelColumn

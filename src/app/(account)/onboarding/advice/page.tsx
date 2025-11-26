@@ -91,9 +91,7 @@ function extractJsonBlock(label: string, text: string): any | null {
 }
 
 // Intenta extraer bloques JSON_* desde el texto largo del consejo
-function tryParseAdviceJson(
-  text: string
-): {
+function tryParseAdviceJson(text: string): {
   summary?: any;
   meals?: any;
   hydration?: any;
@@ -669,8 +667,10 @@ export default function OnboardingAdvicePage() {
   const [loadingWeekly, setLoadingWeekly] = useState<boolean>(true);
   const syncWeeklyFromAdvice = useCallback((payload: any) => {
     const payloadWeekly = (() => {
-      if (Array.isArray(payload?.weekly) && payload.weekly.length) return payload.weekly;
-      if (Array.isArray(payload?.meals?.weekly) && payload.meals.weekly.length) return payload.meals.weekly;
+      if (Array.isArray(payload?.weekly) && payload.weekly.length)
+        return payload.weekly;
+      if (Array.isArray(payload?.meals?.weekly) && payload.meals.weekly.length)
+        return payload.meals.weekly;
       return null;
     })();
     if (payloadWeekly) {
@@ -852,7 +852,11 @@ export default function OnboardingAdvicePage() {
   }
   // Construir vista previa efímera a partir de mealItems (AI) si no hay weekly.weekly o para reemplazar cualquier plan previo guardado.
   const ephemeralWeekly = useMemo(() => {
-    if (weekly?.source === "ai" && Array.isArray(weekly.weekly) && weekly.weekly.length) {
+    if (
+      weekly?.source === "ai" &&
+      Array.isArray(weekly.weekly) &&
+      weekly.weekly.length
+    ) {
       return weekly.weekly;
     }
     // Construye un plan semanal rotado SOLO en memoria partiendo de mealItems (IA) o, si no hay,
@@ -987,7 +991,8 @@ export default function OnboardingAdvicePage() {
       const normTipo = (raw: any) => {
         const s = String(raw || "").toLowerCase();
         if (/desayuno|breakfast|mañana|morning/.test(s)) return "Desayuno";
-        if (/almuerzo|comida|lunch|mediod[ií]a|medio dia/.test(s)) return "Almuerzo";
+        if (/almuerzo|comida|lunch|mediod[ií]a|medio dia/.test(s))
+          return "Almuerzo";
         if (/cena|dinner|noche|night/.test(s)) return "Cena";
         if (/snack|merienda|colaci[oó]n|tentempi[ée]/.test(s)) return "Snack";
         return "Comida";
@@ -2071,17 +2076,35 @@ export default function OnboardingAdvicePage() {
             setSummary(json.summary ?? null);
             const items = json.meals?.items;
             let nextItems = Array.isArray(items) && items.length ? items : null;
-            let nextVariants = json.meals?.variants && typeof json.meals.variants === "object" ? json.meals.variants : null;
-            if (!nextItems && typeof json.advice === "string" && json.advice.includes("JSON_")) {
+            let nextVariants =
+              json.meals?.variants && typeof json.meals.variants === "object"
+                ? json.meals.variants
+                : null;
+            if (
+              !nextItems &&
+              typeof json.advice === "string" &&
+              json.advice.includes("JSON_")
+            ) {
               const parsed = tryParseAdviceJson(json.advice);
               if (parsed?.meals) {
-                const m = Array.isArray(parsed.meals?.items) ? parsed.meals.items : Array.isArray(parsed.meals) ? parsed.meals : null;
+                const m = Array.isArray(parsed.meals?.items)
+                  ? parsed.meals.items
+                  : Array.isArray(parsed.meals)
+                  ? parsed.meals
+                  : null;
                 if (m && m.length) nextItems = m;
               }
-              if (!nextVariants && parsed?.variants && typeof parsed.variants === "object") {
+              if (
+                !nextVariants &&
+                parsed?.variants &&
+                typeof parsed.variants === "object"
+              ) {
                 nextVariants = parsed.variants;
               }
-              if (parsed?.hydration && typeof parsed.hydration?.litros === "number") {
+              if (
+                parsed?.hydration &&
+                typeof parsed.hydration?.litros === "number"
+              ) {
                 setHydrationLiters(parsed.hydration.litros);
               }
               if (parsed?.summary && !json.summary) {
@@ -2213,18 +2236,36 @@ export default function OnboardingAdvicePage() {
         setSummary(json.summary ?? null);
         const items = json.meals?.items;
         let nextItems = Array.isArray(items) && items.length ? items : null;
-        let nextVariants = json.meals?.variants && typeof json.meals.variants === "object" ? json.meals.variants : null;
+        let nextVariants =
+          json.meals?.variants && typeof json.meals.variants === "object"
+            ? json.meals.variants
+            : null;
         // Si no llegaron items válidos, intentar parsear del texto largo
-        if (!nextItems && typeof json.advice === "string" && json.advice.includes("JSON_")) {
+        if (
+          !nextItems &&
+          typeof json.advice === "string" &&
+          json.advice.includes("JSON_")
+        ) {
           const parsed = tryParseAdviceJson(json.advice);
           if (parsed?.meals) {
-            const m = Array.isArray(parsed.meals?.items) ? parsed.meals.items : Array.isArray(parsed.meals) ? parsed.meals : null;
+            const m = Array.isArray(parsed.meals?.items)
+              ? parsed.meals.items
+              : Array.isArray(parsed.meals)
+              ? parsed.meals
+              : null;
             if (m && m.length) nextItems = m;
           }
-          if (!nextVariants && parsed?.variants && typeof parsed.variants === "object") {
+          if (
+            !nextVariants &&
+            parsed?.variants &&
+            typeof parsed.variants === "object"
+          ) {
             nextVariants = parsed.variants;
           }
-          if (parsed?.hydration && typeof parsed.hydration?.litros === "number") {
+          if (
+            parsed?.hydration &&
+            typeof parsed.hydration?.litros === "number"
+          ) {
             setHydrationLiters(parsed.hydration.litros);
           }
           if (parsed?.summary && !json.summary) {
