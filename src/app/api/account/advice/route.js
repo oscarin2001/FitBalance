@@ -437,14 +437,29 @@ export async function POST(request) {
           if (!advice.includes("JSON_SUMMARY")) return true;
           return false;
         }
+        const cachedWeekly = Array.isArray(cached?.weekly) && cached.weekly.length
+          ? cached.weekly
+          : Array.isArray(cached?.meals?.weekly) && cached.meals.weekly.length
+          ? cached.meals.weekly
+          : null;
+
         if (
           cached &&
           cached.hash === currentHash &&
           cached.advice &&
           cached.summary &&
           cached.meals &&
+          cachedWeekly &&
           !isLegacyOrInvalid(cached.advice)
         ) {
+          if (!cached.weekly && cachedWeekly) {
+            try {
+              await prisma.usuario.update({
+                where: { id: userId },
+                data: { plan_ai: { ...cached, weekly: cachedWeekly } },
+              });
+            } catch {}
+          }
           return NextResponse.json(
             {
               advice: cached.advice,
@@ -452,7 +467,7 @@ export async function POST(request) {
               meals: cached.meals,
               hydration: cached.hydration,
               beverages: cached.beverages,
-              weekly: cached.weekly || null,
+              weekly: cachedWeekly,
               cached: true,
             },
             { status: 200 }
