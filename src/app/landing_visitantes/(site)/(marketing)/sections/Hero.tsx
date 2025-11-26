@@ -1,5 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 // Place a 1400x900 PNG/JPG at public/assets/landing/hero/app-preview.png to update the hero mockup.
 const HERO_IMAGE_SRC = "/assets/landing/hero/app-preview.png";
@@ -10,12 +13,84 @@ const accent = {
   purple: "#5c42d8",
 };
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
+
+function detectStandalone() {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    // @ts-expect-error - iOS Safari exposes this flag
+    window.navigator.standalone === true
+  );
+}
+
 export function Hero() {
   const navLinks = [
     { label: "Características", href: "#caracteristicas" },
     { label: "Cómo funciona", href: "#como-funciona" },
     { label: "Roadmap", href: "#roadmap" },
   ];
+
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    setIsStandalone(detectStandalone());
+
+    const handleBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+      setInstalling(false);
+    };
+
+    const handleInstalled = () => {
+      setInstallPrompt(null);
+      setIsStandalone(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall as EventListener);
+    window.addEventListener("appinstalled", handleInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstall as EventListener);
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
+  }, []);
+
+  const handlePrimaryCta = useCallback(async () => {
+    if (isStandalone) {
+      window.location.href = "/auth/login";
+      return;
+    }
+
+    if (installPrompt) {
+      setInstalling(true);
+      try {
+        await installPrompt.prompt();
+        await installPrompt.userChoice;
+      } finally {
+        setInstalling(false);
+        setInstallPrompt(null);
+      }
+      return;
+    }
+
+    window.location.href = "/auth/login";
+  }, [installPrompt, isStandalone]);
+
+  const primaryCtaLabel = useMemo(() => {
+    if (isStandalone) return "Abrir FitBalance";
+    if (installing) return "Abriendo instalación…";
+    return "Instalar FitBalance";
+  }, [isStandalone, installing]);
+
+  const primaryCtaDisabled = installing;
 
   return (
     <header className="bg-gradient-to-br from-white via-emerald-50 to-indigo-50 text-slate-900">
@@ -47,13 +122,15 @@ export function Hero() {
             </p>
           </div>
           <div className="flex flex-col items-center justify-center gap-4 md:flex-row">
-            <Link
-              href="#descargar-app"
-              className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-[var(--accent)] px-6 py-3 text-base font-semibold text-white shadow-lg transition hover:-translate-y-0.5"
-              style={{ ['--accent' as string]: accent.primary }}
+            <button
+              type="button"
+              onClick={handlePrimaryCta}
+              disabled={primaryCtaDisabled}
+              className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-[var(--accent)] px-6 py-3 text-base font-semibold text-white shadow-lg transition hover:-translate-y-0.5 disabled:opacity-70"
+              style={{ ["--accent" as string]: accent.primary }}
             >
-              Instalar FitBalance
-            </Link>
+              {primaryCtaLabel}
+            </button>
             <Link
               href="/auth/login"
               className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-3 text-base font-semibold text-slate-600 transition hover:border-slate-400"
