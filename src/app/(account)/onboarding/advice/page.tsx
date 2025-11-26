@@ -949,6 +949,27 @@ export default function OnboardingAdvicePage() {
       return items;
     }
 
+    // Limpiar títulos de comidas generados por la IA: eliminar cantidades, unidades y paréntesis
+    function sanitizeMealTitle(raw: string | null | undefined) {
+      if (!raw || typeof raw !== "string") return raw || "";
+      let s = raw;
+      // Quitar contenido entre paréntesis y corchetes
+      s = s.replace(/\([^)]*\)/g, "");
+      s = s.replace(/\[[^\]]*\]/g, "");
+      // Quitar patrones de cantidad (80g, 250 ml, 15 g, 150g, 1 taza, 2 unidades, etc.)
+      s = s.replace(/\b\d+[\.,]?\d*\s*(g|gr|grs|gramo(?:s)?|kg|mg|ml|l|taza(?:s)?|cucharad(?:a|as)|unidad(?:es)?|unidades|u)\b/gi, "");
+      s = s.replace(/\b\d+[\.,]?\d*(ml|g|l)\b/gi, "");
+      // Quitar indicadores tipo '- 27 g proteína' al final
+      s = s.replace(/[-–—]\s*\d+[\.,]?\d*\s*(g|gr|grs|gramo(?:s)?|ml|l).*/i, "");
+      // Quitar números sueltos que no aporten al título (pero no eliminar letras)
+      s = s.replace(/\b\d+\b/g, "");
+      // Normalizar comas y espacios
+      s = s.replace(/\s{2,}/g, " ").replace(/\s*,\s*/g, ", ").trim();
+      // Eliminar comas iniciales o finales
+      s = s.replace(/^,\s*/g, "").replace(/\s*,\s*$/g, "");
+      return s;
+    }
+
     // Leer enabledMeals del perfil para saber si hay snacks separados mañana/tarde
     let enabledMeals: any = null;
     try {
@@ -1002,7 +1023,7 @@ export default function OnboardingAdvicePage() {
         // Mapear nombre desde claves comunes si falta
         if (m && m.nombre == null) {
           const name = m.name ?? m.titulo ?? m.title ?? null;
-          if (name) m.nombre = name;
+          if (name) m.nombre = sanitizeMealTitle(name);
         }
         // Normalizar tipo tomando posibles claves alternativas
         let tipo = normTipo(m?.tipo ?? m?.type ?? m?.meal_type);
@@ -1062,12 +1083,8 @@ export default function OnboardingAdvicePage() {
                     : "Snack_tarde";
               else tipo = "Snack";
             }
-            const displayName = (() => {
-              const firstSentence = nombre.split(/[.]/)[0]?.trim();
-              if (firstSentence && firstSentence.length > 3)
-                return firstSentence;
-              return nombre;
-            })();
+            const rawTitle = (nombre && nombre.split(/[.]/)[0]?.trim()) || nombre;
+            const displayName = sanitizeMealTitle(rawTitle);
             currentMeal = { tipo, nombre: displayName, ingredientes: [] };
             const inlineIngs = parseInlineIngredients(nombre);
             if (inlineIngs.length) currentMeal.ingredientes.push(...inlineIngs);
