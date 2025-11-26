@@ -257,7 +257,7 @@ export async function POST(request) {
           return false;
         }
         if (cached && cached.hash === currentHash && cached.advice && cached.summary && cached.meals && !isLegacyOrInvalid(cached.advice)) {
-          return NextResponse.json({ advice: cached.advice, summary: cached.summary, meals: cached.meals, hydration: cached.hydration, beverages: cached.beverages, cached: true }, { status: 200 });
+          return NextResponse.json({ advice: cached.advice, summary: cached.summary, meals: cached.meals, hydration: cached.hydration, beverages: cached.beverages, weekly: cached.weekly || null, cached: true }, { status: 200 });
         }
       } catch {}
     }
@@ -985,6 +985,7 @@ ${wantTypesText}`;
   let hydration = null;
   let beveragesPlan = null;
     let mealsVariants = null;
+  let weeklyPlanFromJson = null;
 
     function extractJsonBlock(label, text) {
       if (!text) return null;
@@ -1035,7 +1036,24 @@ ${wantTypesText}`;
       const sObj = extractJsonBlock('JSON_SUMMARY', content);
       if (sObj && typeof sObj === 'object') summary = sObj;
       const mObj = extractJsonBlock('JSON_MEALS', content);
-      if (mObj && typeof mObj === 'object') meals = mObj;
+      if (Array.isArray(mObj)) {
+        meals = { items: mObj };
+      } else if (mObj && typeof mObj === 'object') {
+        if (Array.isArray(mObj.items)) {
+          meals = { ...mObj, items: mObj.items };
+        } else {
+          const converted = convertWeeklyPlanObject(mObj);
+          if (converted) {
+            meals = { items: converted.items };
+            weeklyPlanFromJson = converted.weekly;
+          } else {
+            meals = mObj;
+          }
+        }
+        if (!weeklyPlanFromJson && Array.isArray(mObj.weekly)) {
+          weeklyPlanFromJson = sanitizeWeeklyPlanArray(mObj.weekly);
+        }
+      }
   const hObj = extractJsonBlock('JSON_HYDRATION', content);
       if (hObj && typeof hObj === 'object') hydration = hObj;
   const bObj = extractJsonBlock('JSON_BEVERAGES', content);
@@ -1061,6 +1079,10 @@ ${wantTypesText}`;
 
     sanitizeSummaryTargets(summary);
 
+    if (weeklyPlanFromJson && summary && Number.isFinite(Number(summary.proteinas_g))) {
+      weeklyPlanFromJson = applyProteinTargets(weeklyPlanFromJson, Number(summary.proteinas_g));
+    }
+
     // Helper: normaliza un string al tipo estándar o null
     function normalizeTipoComida(raw) {
       if (!raw) return null;
@@ -1070,6 +1092,235 @@ ${wantTypesText}`;
       if (/cena|dinner|noche|night/.test(s)) return "Cena";
       if (/snack|merienda|colaci[oó]n|tentempi[eé]|snacks?/.test(s)) return "Snack";
       return null;
+    }
+
+    const DAY_NAME_LOOKUP = {
+      lunes: "Lunes",
+      monday: "Lunes",
+      martes: "Martes",
+      tuesday: "Martes",
+      miercoles: "Miércoles",
+      wednesday: "Miércoles",
+      jueves: "Jueves",
+      thursday: "Jueves",
+      viernes: "Viernes",
+      friday: "Viernes",
+      sabado: "Sábado",
+      saturday: "Sábado",
+      domingo: "Domingo",
+      sunday: "Domingo",
+    };
+
+    function normalizeDayKey(raw) {
+      if (!raw) return null;
+      const base = String(raw)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+      return DAY_NAME_LOOKUP[base] || null;
+    }
+
+    function normalizeMealTextList(raw) {
+      if (raw == null) return [];
+      if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        return trimmed ? [trimmed] : [];
+      }
+      if (Array.isArray(raw)) {
+        return raw
+          .map((item) => {
+            if (typeof item === 'string') return item.trim();
+            if (item && typeof item === 'object') {
+              if (typeof item.descripcion === 'string') return item.descripcion.trim();
+              if (typeof item.description === 'string') return item.description.trim();
+              if (typeof item.nombre === 'string') return item.nombre.trim();
+            }
+            if (typeof item === 'number') return String(item);
+            return '';
+          })
+          .filter(Boolean);
+      }
+      if (typeof raw === 'object') {
+        const pieces = [];
+        if (typeof raw.descripcion === 'string') pieces.push(raw.descripcion.trim());
+        if (typeof raw.description === 'string') pieces.push(raw.description.trim());
+        if (Array.isArray(raw.itemsText)) pieces.push(...raw.itemsText.map((t) => (typeof t === 'string' ? t.trim() : '')));
+        if (Array.isArray(raw.items)) {
+          pieces.push(
+            ...raw.items.map((it) => {
+              if (typeof it === 'string') return it.trim();
+              if (it && typeof it === 'object' && typeof it.nombre === 'string') {
+                const qty = it.cantidad || it.qty || it.medida || '';
+                return qty ? `${it.nombre} (${qty})` : it.nombre;
+              }
+              return '';
+            })
+          );
+        }
+        if (typeof raw.nombre === 'string') pieces.push(raw.nombre.trim());
+        if (!pieces.length && typeof raw === 'object') {
+          const fallback = JSON.stringify(raw);
+          if (fallback && fallback.length <= 120) pieces.push(fallback);
+        }
+        return pieces.filter(Boolean);
+      }
+      return [];
+    }
+
+    function deriveMealTitle(tipo, sampleText, dayLabel) {
+      const fallback = dayLabel ? `${tipo} ${dayLabel}` : tipo;
+      if (!sampleText) return fallback;
+      const cleaned = sampleText
+        .replace(/\([^)]*\)/g, '')
+        .replace(/[*•]/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      if (!cleaned) return fallback;
+      return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    }
+
+    function extractIngredientsFromTexts(textList) {
+      const results = [];
+      const seen = new Set();
+      for (const text of textList || []) {
+        const trimmed = (text || '').trim();
+        if (!trimmed) continue;
+        const regex = /([^,;()]+?)\s*\((\d+(?:[.,]\d+)?)\s*(g|gr|gramos)\)/gi;
+        let match;
+        while ((match = regex.exec(trimmed)) !== null) {
+          const nombre = match[1].replace(/^(?:y|con)\s+/i, '').trim();
+          const gramos = Number(match[2].replace(',', '.'));
+          if (!nombre || !Number.isFinite(gramos)) continue;
+          const key = `${nombre.toLowerCase()}-${gramos}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          results.push({ nombre, gramos });
+        }
+      }
+      return results;
+    }
+
+    function buildMealObject(label, rawValue, dayName) {
+      const tipo = normalizeTipoComida(label || (rawValue && rawValue.tipo));
+      if (!tipo) return null;
+      const textList = normalizeMealTextList(rawValue);
+      let fallbackName = null;
+      if (rawValue && typeof rawValue === 'object') {
+        if (typeof rawValue.nombre === 'string') fallbackName = rawValue.nombre;
+        else if (typeof rawValue.titulo === 'string') fallbackName = rawValue.titulo;
+        else if (typeof rawValue.title === 'string') fallbackName = rawValue.title;
+      }
+      const nombre = deriveMealTitle(tipo, textList[0] || fallbackName, dayName);
+      let ingredientes = [];
+      if (rawValue && typeof rawValue === 'object' && Array.isArray(rawValue.ingredientes)) {
+        ingredientes = rawValue.ingredientes
+          .map((ing) => {
+            const nombreIng = (ing?.nombre || ing?.name || '').toString().trim();
+            if (!nombreIng) return null;
+            const gramos = Number(ing?.gramos ?? ing?.grams ?? ing?.g);
+            return gramos > 0 ? { nombre: nombreIng, gramos } : { nombre: nombreIng };
+          })
+          .filter(Boolean);
+      } else {
+        ingredientes = extractIngredientsFromTexts(textList);
+      }
+      return {
+        tipo,
+        nombre,
+        itemsText: textList,
+        ingredientes: ingredientes.length ? ingredientes : undefined,
+      };
+    }
+
+    function convertWeeklyPlanObject(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+      const flattened = [];
+      const weekly = [];
+      for (const [rawDay, dayValue] of Object.entries(obj)) {
+        const dayName = normalizeDayKey(rawDay);
+        if (!dayName || !dayValue) continue;
+        const dayMeals = [];
+        const pushMeal = (label, source) => {
+          const meal = buildMealObject(label, source, dayName);
+          if (!meal) return;
+          flattened.push({
+            tipo: meal.tipo,
+            nombre: meal.nombre,
+            itemsText: meal.itemsText,
+            dia: dayName,
+            ...(meal.ingredientes ? { ingredientes: meal.ingredientes } : {}),
+          });
+          dayMeals.push({
+            tipo: meal.tipo,
+            receta: { nombre: meal.nombre },
+            itemsText: meal.itemsText,
+            ...(meal.ingredientes ? { ingredientes: meal.ingredientes } : {}),
+          });
+        };
+        if (Array.isArray(dayValue)) {
+          for (const entry of dayValue) {
+            const label = entry?.tipo || entry?.type || entry?.meal || entry?.titulo || entry?.title || entry?.nombre;
+            pushMeal(label || 'Comida', entry);
+          }
+        } else if (typeof dayValue === 'object') {
+          for (const [slot, slotValue] of Object.entries(dayValue)) {
+            pushMeal(slot, slotValue);
+          }
+        }
+        if (dayMeals.length) {
+          weekly.push({ day: dayName, active: true, meals: dayMeals });
+        }
+      }
+      if (!weekly.length) return null;
+      return { items: flattened, weekly };
+    }
+
+    function sanitizeWeeklyPlanArray(raw) {
+      if (!Array.isArray(raw)) return null;
+      const normalized = raw
+        .map((entry) => {
+          if (!entry) return null;
+          const dayName = typeof entry.day === 'string' ? entry.day : normalizeDayKey(entry.dia);
+          if (!dayName) return null;
+          const mealsRaw = Array.isArray(entry.meals) ? entry.meals : [];
+          const alreadyStructured = mealsRaw.length && mealsRaw.every((m) => m && typeof m.tipo === 'string' && m.receta && typeof m.receta.nombre === 'string');
+          const meals = alreadyStructured
+            ? mealsRaw
+            : mealsRaw
+                .map((meal, idx) => {
+                  const label = meal?.tipo || meal?.type || meal?.meal || `Comida ${idx + 1}`;
+                  const normalizedMeal = buildMealObject(label, meal, dayName);
+                  if (!normalizedMeal) return null;
+                  const base = {
+                    tipo: normalizedMeal.tipo,
+                    receta: { nombre: normalizedMeal.nombre },
+                    itemsText: normalizedMeal.itemsText,
+                  };
+                  if (normalizedMeal.ingredientes) base.ingredientes = normalizedMeal.ingredientes;
+                  if (meal?.targetProteinG != null) base.targetProteinG = meal.targetProteinG;
+                  return base;
+                })
+                .filter(Boolean);
+          return { day: dayName, active: entry.active !== false, meals };
+        })
+        .filter(Boolean);
+      return normalized.length ? normalized : null;
+    }
+
+    function applyProteinTargets(weeklyArr, proteinTarget) {
+      if (!Array.isArray(weeklyArr) || !Number.isFinite(proteinTarget) || proteinTarget <= 0) {
+        return weeklyArr;
+      }
+      return weeklyArr.map((day) => {
+        if (!day || !Array.isArray(day.meals) || !day.meals.length) return day;
+        const perMeal = Math.max(6, Math.round(proteinTarget / day.meals.length));
+        const meals = day.meals.map((meal) => {
+          if (!meal || meal.targetProteinG != null) return meal;
+          return { ...meal, targetProteinG: perMeal };
+        });
+        return { ...day, meals };
+      });
     }
 
     // Helper: generar items básicos por tipo a partir de alimentos guardados
@@ -1195,14 +1446,14 @@ ${wantTypesText}`;
       if (currentHash && meals && summary && content) {
         const isLocalFallback = (usedModel || '').startsWith('fallback-local');
         if (!isLocalFallback) {
-          const cacheObj = { advice: content, summary, meals, hydration, beverages: beveragesPlan, hash: currentHash, model: usedModel, generated_ms: genMs, ts: new Date().toISOString() };
+          const cacheObj = { advice: content, summary, meals, hydration, beverages: beveragesPlan, weekly: weeklyPlanFromJson, hash: currentHash, model: usedModel, generated_ms: genMs, ts: new Date().toISOString() };
           await prisma.usuario.update({ where: { id: userId }, data: { plan_ai: cacheObj } });
         }
       }
     } catch {}
 
   const isFallback = (usedModel || '').startsWith('fallback');
-  const baseResponse = { advice: content, summary, meals, hydration, beverages: beveragesPlan, model: usedModel, took_ms: genMs, fallback: isFallback };
+  const baseResponse = { advice: content, summary, meals, hydration, beverages: beveragesPlan, weekly: weeklyPlanFromJson, model: usedModel, took_ms: genMs, fallback: isFallback };
   if (debugMode) {
     baseResponse.debug = { mainPhase, content_chars: content ? content.length : 0, wantTypesOrder, forceLong, FAST_MODE, USE_FAST, models: { primary_long: EFFECTIVE_MODEL_LONG, primary_fast: EFFECTIVE_MODEL_FALLBACK, alts: ALT_MODELS } };
     if (debugPromptOnly) {
