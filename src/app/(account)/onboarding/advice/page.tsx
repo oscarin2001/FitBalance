@@ -1107,57 +1107,7 @@ export default function OnboardingAdvicePage() {
       } catch {}
     }
 
-    // Si seguimos sin items (IA no entregó JSON_MEALS ni variantes, ni se pudo parsear texto), generar un set mínimo por tipo requerido
-    if (!Object.keys(mealsByType).length) {
-      const mk = (tipo: string, nombre: string, ings: any[]) => ({
-        tipo,
-        nombre,
-        porciones: 1,
-        ingredientes: ings,
-      });
-      const basicFor = (t: string) => {
-        if (t === "Desayuno")
-          return mk("Desayuno", "Desayuno básico", [
-            { nombre: "Huevo", gramos: 120 },
-            { nombre: "Fruta", gramos: 120 },
-            { nombre: "Frutos secos", gramos: 15 },
-          ]);
-        if (t === "Almuerzo")
-          return mk("Almuerzo", "Almuerzo básico", [
-            { nombre: "Pollo", gramos: 120 },
-            { nombre: "Arroz", gramos: 90 },
-            { nombre: "Verduras", gramos: 120 },
-            { nombre: "Aceite de oliva", gramos: 10 },
-          ]);
-        if (t === "Cena")
-          return mk("Cena", "Cena básica", [
-            { nombre: "Pescado", gramos: 120 },
-            { nombre: "Quinua", gramos: 90 },
-            { nombre: "Ensalada", gramos: 150 },
-            { nombre: "Aceite de oliva", gramos: 10 },
-          ]);
-        return mk("Snack", "Snack básico", [
-          { nombre: "Yogur", gramos: 180 },
-          { nombre: "Fruta", gramos: 120 },
-        ]);
-      };
-      const req: string[] = [];
-      if (enabledMeals?.desayuno) req.push("Desayuno");
-      if (enabledMeals?.almuerzo) req.push("Almuerzo");
-      if (enabledMeals?.cena) req.push("Cena");
-      if (wantsSnackManana && wantsSnackTarde) {
-        req.push("Snack_manana", "Snack_tarde");
-      } else if (wantsSnackManana || wantsSnackTarde) {
-        req.push("Snack");
-      }
-      if (req.length === 0) req.push("Desayuno", "Almuerzo", "Cena", "Snack");
-      req.forEach((t) => {
-        const key = t;
-        const base = t === "Snack_manana" || t === "Snack_tarde" ? "Snack" : t;
-        const item = basicFor(base);
-        mealsByType[key] = [item];
-      });
-    }
+    // NOTE: Fallback generation of basic meals removed — IA is expected to provide meals.
 
     // Normalización: asegurar que los tipos requeridos por enabledMeals existan como buckets
     const requiredTypes: string[] = [];
