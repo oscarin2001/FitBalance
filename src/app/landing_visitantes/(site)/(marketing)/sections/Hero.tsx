@@ -59,17 +59,11 @@ export function Hero() {
       setTimeout(() => setInstallNotice(null), 6000);
     };
 
-    window.addEventListener(
-      "beforeinstallprompt",
-      handleBeforeInstall as EventListener
-    );
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall as EventListener);
     window.addEventListener("appinstalled", handleInstalled);
 
     return () => {
-      window.removeEventListener(
-        "beforeinstallprompt",
-        handleBeforeInstall as EventListener
-      );
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstall as EventListener);
       window.removeEventListener("appinstalled", handleInstalled);
     };
   }, []);
@@ -151,9 +145,7 @@ export function Hero() {
             >
               {primaryCtaLabel}
             </button>
-            {installNotice && (
-              <div className="mt-2 text-sm text-emerald-700">{installNotice}</div>
-            )}
+            
             <Link
               href="/auth/login"
               className="inline-flex min-w-[220px] items-center justify-center rounded-full border border-slate-200 bg-white px-6 py-3 text-base font-semibold text-slate-600 transition hover:border-slate-400"
@@ -161,6 +153,24 @@ export function Hero() {
               Entrar al panel web
             </Link>
           </div>
+          {/* Floating install banner */}
+          {installNotice && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full px-5 py-3 text-white shadow-xl flex items-center gap-3"
+              style={{ background: accent.purple }}
+            >
+              <div className="text-sm font-medium">{installNotice}</div>
+              <button
+                aria-label="Cerrar aviso"
+                onClick={() => setInstallNotice(null)}
+                className="text-white/80 text-sm rounded px-2 py-1"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <figure className="mx-auto mt-12 max-w-5xl rounded-3xl border border-emerald-100 bg-white/80 p-6 shadow-2xl shadow-emerald-100">
             <Image
               src={HERO_IMAGE_SRC}
